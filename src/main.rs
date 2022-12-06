@@ -23,24 +23,6 @@ const PLAYER_COLORS: [Color; PLAYER_COUNT] = [
     Color::RGB(0, 200, 0),
 ];
 
-fn draw_bg(canvas: &mut Canvas<Window>) -> Result<(), String> {
-    canvas.set_draw_color(Color::RGB(200, 200, 200));
-    canvas.clear();
-    for i in 0..DIMX + 1 {
-        canvas.vline((i*100) as i16, 0, 100*DIMY as i16, Color::RGB(0, 0, 0))?;
-    }
-    for i in 0..DIMY {
-        canvas.hline(0, (100*DIMX) as i16, (i*100) as i16, Color::RGB(0, 0, 0))?;
-    }
-    for i in 0..PLAYER_COUNT {
-        let x = DIMX * 100 + 50;
-        let y = 30 + i as i16 * 40;
-        canvas.filled_circle(x as i16, y as i16, 15, PLAYER_COLORS[i])?;
-        canvas.aa_circle(x as i16, y as i16, 15, Color::RGB(0, 0, 0))?;
-    }
-    Ok(())
-}
-
 #[derive(Clone)]
 #[derive(Copy)]
 struct Marble {
@@ -101,8 +83,10 @@ impl Field {
         field
     }
 
-    fn add(&mut self, owner: usize) {
-        assert_eq!(owner, *self.owner.get_or_insert(owner));
+    fn add(&mut self, owner: usize) -> Result<(), ()>{
+        if *self.owner.get_or_insert(owner) != owner {
+            return Err(())
+        }
         for i in 0..4 {
             match &mut self.directions[i] {
                 None => continue,
@@ -117,6 +101,7 @@ impl Field {
                 },
             }
         }
+        Ok(())
     }
 
     fn draw(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
@@ -138,14 +123,23 @@ impl Field {
     }
 }
 
+enum State {
+    AcceptingInput,
+    Animating,
+}
+
 struct Grid {
     fields: Vec<Vec<Field>>,
+    state: State,
+    active_player: usize,
 }
 
 impl Grid {
     fn new() -> Grid {
         let mut grid = Grid {
-            fields: Vec::with_capacity(DIMX)
+            fields: Vec::with_capacity(DIMX),
+            state: State::AcceptingInput,
+            active_player: 0,
         };
         for i in 0..DIMX {
             grid.fields.push(Vec::with_capacity(DIMY));
@@ -154,6 +148,50 @@ impl Grid {
             };
         };
         grid
+    }
+
+    fn click(&mut self, x: usize, y: usize) {
+        match self.state {
+            State::AcceptingInput => { },
+            _ => return
+        }
+
+        let x = x/100;
+        let y = y/100;
+        if x >= DIMX || y >= DIMY {
+            return
+        }
+
+        match self.fields[x][y].add(self.active_player) {
+            Ok(_) => {
+                self.active_player = (self.active_player + 1) % PLAYER_COUNT;
+            },
+            Err(_) => {}
+        }
+    }
+    
+    fn draw(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
+        canvas.set_draw_color(Color::RGB(200, 200, 200));
+        canvas.clear();
+        for i in 0..DIMX + 1 {
+            canvas.vline((i*100) as i16, 0, 100*DIMY as i16, Color::RGB(0, 0, 0))?;
+        }
+        for i in 0..DIMY {
+            canvas.hline(0, (100*DIMX) as i16, (i*100) as i16, Color::RGB(0, 0, 0))?;
+        }
+        for player in 0..PLAYER_COUNT {
+            let x = (DIMX * 100 + 50) as i16;
+            let y = (30 + player as i16 * 40) as i16;
+            canvas.filled_circle(x, y, 15, PLAYER_COLORS[player])?;
+            canvas.aa_circle(x, y, 15, Color::RGB(0, 0, 0))?;
+            if player == self.active_player {
+                canvas.filled_pie(x-20, y, 20, 160, 200, Color::RGB(0, 0, 0))?;
+            }
+        }
+        for field in self.fields.iter().flatten() {
+            field.draw(canvas)?;
+        }
+        Ok(())
     }
 }
  
@@ -185,20 +223,12 @@ pub fn main() -> Result<(), String> {
                     break 'running
                 },
                 Event::MouseButtonDown {x, y, .. } => {
-                    let x = (x / 100) as usize;
-                    let y = (y / 100) as usize;
-                    if x < DIMX && y < DIMY {
-                        grid.fields[x][y].add(0);
-                    }
+                    grid.click(x as usize, y as usize);
                 },
                 _ => {}
             }
         }
-        // The rest of the game loop goes here...
-        draw_bg(&mut canvas)?;
-        for field in grid.fields.iter().flatten() {
-            field.draw(&mut canvas)?;
-        }
+        grid.draw(&mut canvas)?;
         canvas.present();
         std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     };
