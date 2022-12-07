@@ -2,6 +2,7 @@ extern crate sdl2;
 extern crate num;
 
 use std::vec::Vec;
+use std::collections::VecDeque;
 
 use num::complex;
 
@@ -36,7 +37,9 @@ const PLAYER_COLORS: [Color; PLAYER_COUNT] = [
 #[derive(Clone)]
 #[derive(Copy)]
 struct Marble {
+    // current position (exact position in pixels)
     pos: Complex,
+    // target position we are moving to
     target: Complex,
     owner: usize,
 }
@@ -67,26 +70,35 @@ impl Marble {
 struct Cell {
     owner: Option<usize>,
     coord: Complex,
+    num_neighbors: usize,
     has_neighbor: [bool; 4],
-    // Marbles that are held by this cell
-    marbles: [Option<Marble>; 4],
-    // Marbles that are on their way here.
-    receiving: [Option<Marble>; 4],
+    // For each direction, we have a list (VecDeque) of marbles. Some of them might be "transient",
+    // i.e. not yet to be moved away in the current animation phase.
+    // New marbles are added as non-transient.
+    // At the start of the animation phase, we check if there are as many non-transient marbles as
+    // there are neighbors - if so, we remove one from each direction and return it to the caller
+    // (Grid), which adds them to the neighbors as transient marbles.
+    // At the end of the animation phase, all marbles are marked as non-transient.
+    marbles: [VecDeque<Marble>; 4],
+    num_transients: usize,
 }
 
 impl Cell {
     fn new(coord: Complex) -> Cell {
+        let has_neighbor = [
+            coord.re < DIMX - 1,
+            coord.im > 0,
+            coord.re > 0,
+            coord.im < DIMY - 1,
+        ];
+        let x = VecDeque::with_capacity(3);
         Cell {
             owner: None,
             coord: coord,
-            has_neighbor: [
-                coord.re < DIMX - 1,
-                coord.im > 0,
-                coord.re > 0,
-                coord.im < DIMY - 1,
-            ],
-            marbles: [None, None, None, None],
-            receiving: [None, None, None, None],
+            has_neighbor: has_neighbor,
+            num_neighbors: has_neighbor.iter().map(|x| if *x {1} else {0}).sum(),
+            marbles: [x.clone(), x.clone(), x.clone(), x.clone()],
+            num_transients: 0,
         }
     }
 
@@ -96,16 +108,22 @@ impl Cell {
             return Err(())
         }
         for direction in 0..4 {
-            if !self.has_neighbor[direction] {
+            if !self.has_neighbor[direction] || !self.marbles[direction].is_empty() {
                 continue
             }
-            if self.marbles[direction].is_none() {
-                let coord = self.coord * 100 + Complex::new(50, 50) + 25*DIRECTIONS[direction];
-                self.marbles[direction].insert(Marble::new(coord, owner));
-                break;
-            }
+            let coord = self.coord * 100 + Complex::new(50, 50) + 25*DIRECTIONS[direction];
+            self.marbles[direction].push_back(Marble::new(coord, owner));
+            break;
         }
         Ok(())
+    }
+
+    fn start_animation(&mut self) -> Vec<(usize, Marble)> {
+        // If all slots have marbles, push them together with their direction into the result and
+        // remove them from the cell itself. If any marble is found in the secondary slot of the
+        // corresponding direction, move it into the primary slot.
+        let mut result = Vec::with_capacity(4);
+        result
     }
 
     fn draw(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
@@ -120,7 +138,7 @@ impl Cell {
             canvas.filled_circle(x, y, 15, Color::RGB(255, 255, 255))?;
             canvas.aa_circle(x, y, 15, Color::RGB(0, 0, 0))?;
         }
-        for marble in self.marbles.into_iter().flatten() {
+        for marble in self.marbles.iter().flatten() {
             marble.draw(canvas)?;
         }
         Ok(())
