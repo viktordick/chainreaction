@@ -1,6 +1,9 @@
 extern crate sdl2; 
+extern crate num;
 
 use std::vec::Vec;
+
+use num::complex;
 
 use sdl2::pixels::Color;
 use sdl2::event::Event;
@@ -10,11 +13,18 @@ use sdl2::render::Canvas;
 use sdl2::video::Window;
 use sdl2::gfx::primitives::DrawRenderer;
 
-const DIMX: usize = 8;
-const DIMY: usize = 6;
-const COORDS: [[usize; 4]; 2] = [
-    [75, 50, 25, 50],
-    [50, 25, 50, 75],
+const DIMX: i32 = 8;
+const DIMY: i32 = 6;
+
+type Complex = complex::Complex<i32>;
+const I : Complex = Complex::new(0, 1);
+
+// main directions
+const DIRECTIONS: [Complex; 4] = [
+    Complex::new(1, 0),
+    Complex::new(0, 1),
+    Complex::new(-1, 0),
+    Complex::new(0, -1),
 ];
 
 const PLAYER_COUNT: usize = 2;
@@ -26,12 +36,12 @@ const PLAYER_COLORS: [Color; PLAYER_COUNT] = [
 #[derive(Clone)]
 #[derive(Copy)]
 struct Marble {
-    pos: [usize; 2],
-    target: [usize; 2],
+    pos: Complex,
+    target: Complex,
     owner: usize,
 }
 impl Marble {
-    fn new(pos: [usize; 2], owner: usize) -> Marble {
+    fn new(pos: Complex, owner: usize) -> Marble {
         Marble {
             pos: pos,
             target: pos,
@@ -39,16 +49,14 @@ impl Marble {
         }
     }
 
-    fn step(&mut self, remaining_steps: usize) {
-        for i in 0..2 {
-            self.pos[i] = self.target[i]
-                + ((self.pos[i] - self.target[i]) * remaining_steps) / (remaining_steps + 1);
-        }
+    fn step(&mut self, remaining_steps: i32) {
+        self.pos = self.target
+            + ((self.pos - self.target) * remaining_steps) / (remaining_steps + 1);
     }
 
     fn draw(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
-        let x = self.pos[0] as i16;
-        let y = self.pos[1] as i16;
+        let x = self.pos.re as i16;
+        let y = self.pos.im as i16;
         let color = PLAYER_COLORS[self.owner];
         canvas.aa_circle(x, y, 15, color)?;
         canvas.filled_circle(x, y, 15, color)?;
@@ -56,68 +64,64 @@ impl Marble {
     }
 }
 
-struct Field {
+struct Cell {
     owner: Option<usize>,
-    coord: [usize; 2],
-    directions: [Option<Vec<Marble>>; 4],
+    coord: Complex,
+    has_neighbor: [bool; 4],
+    // Marbles that are held by this cell
+    marbles: [Option<Marble>; 4],
+    // Marbles that are on their way here.
+    receiving: [Option<Marble>; 4],
 }
 
-impl Field {
-    fn new(coord: [usize; 2]) -> Field {
-        let mut field = Field {
+impl Cell {
+    fn new(coord: Complex) -> Cell {
+        Cell {
             owner: None,
             coord: coord,
-            directions: [None, None, None, None],
-        };
-        let has_neighbor = [
-            coord[0] < DIMX - 1,
-            coord[1] > 0,
-            coord[0] > 0,
-            coord[1] < DIMY - 1,
-        ];
-        for i in 0..4 {
-            if has_neighbor[i] {
-                field.directions[i] = Some(Vec::with_capacity(2));
-            }
-        };
-        field
+            has_neighbor: [
+                coord.re < DIMX - 1,
+                coord.im > 0,
+                coord.re > 0,
+                coord.im < DIMY - 1,
+            ],
+            marbles: [None, None, None, None],
+            receiving: [None, None, None, None],
+        }
     }
 
     fn add(&mut self, owner: usize) -> Result<(), ()>{
         if *self.owner.get_or_insert(owner) != owner {
+            // Set owner if it is not yet set, but return an error if it is set differently
             return Err(())
         }
-        for i in 0..4 {
-            match &mut self.directions[i] {
-                None => continue,
-                Some(marbles) => {
-                    if !marbles.is_empty() {
-                        continue
-                    }
-                    let x = self.coord[0] * 100 + COORDS[0][i];
-                    let y = self.coord[1] * 100 + COORDS[1][i];
-                    marbles.push(Marble::new([x, y], owner));
-                    break;
-                },
+        for direction in 0..4 {
+            if !self.has_neighbor[direction] {
+                continue
+            }
+            if self.marbles[direction].is_none() {
+                let coord = self.coord * 100 + Complex::new(50, 50) + 25*DIRECTIONS[direction];
+                self.marbles[direction].insert(Marble::new(coord, owner));
+                break;
             }
         }
         Ok(())
     }
 
     fn draw(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
-        for k in 0..4 {
-            match &self.directions[k] {
-                None => continue,
-                Some(marbles) => {
-                    let x = (self.coord[0] * 100 + COORDS[0][k]) as i16;
-                    let y = (self.coord[1] * 100 + COORDS[1][k]) as i16;
-                    canvas.filled_circle(x, y, 15, Color::RGB(255, 255, 255))?;
-                    canvas.aa_circle(x, y, 15, Color::RGB(0, 0, 0))?;
-                    for marble in marbles.iter() {
-                        marble.draw(canvas)?;
-                    }
-                },
+        let center = self.coord * 100 + Complex::new(50, 50);
+        for direction in 0..4 {
+            if !self.has_neighbor[direction] {
+                continue
             }
+            let pos = center + 25*DIRECTIONS[direction];
+            let x = pos.re as i16;
+            let y = pos.im as i16;
+            canvas.filled_circle(x, y, 15, Color::RGB(255, 255, 255))?;
+            canvas.aa_circle(x, y, 15, Color::RGB(0, 0, 0))?;
+        }
+        for marble in self.marbles.into_iter().flatten() {
+            marble.draw(canvas)?;
         }
         Ok(())
     }
@@ -129,28 +133,33 @@ enum State {
 }
 
 struct Grid {
-    fields: Vec<Vec<Field>>,
+    cells: Vec<Cell>,
     state: State,
     active_player: usize,
 }
 
 impl Grid {
+    fn cell(&self, coordinates: Complex) -> &Cell {
+        &self.cells[(DIMY*coordinates.re + coordinates.im) as usize]
+    }
+    fn cell_mut(&mut self, coordinates: Complex) -> &mut Cell {
+        &mut self.cells[(DIMY*coordinates.re + coordinates.im) as usize]
+    }
     fn new() -> Grid {
-        let mut grid = Grid {
-            fields: Vec::with_capacity(DIMX),
+        let mut cells = Vec::with_capacity((DIMX*DIMY) as usize);
+        for coordx in 0..DIMX {
+            for coordy in 0..DIMY {
+                cells.push(Cell::new(coordx+I*coordy))
+            }
+        }
+        Grid{
+            cells: cells,
             state: State::AcceptingInput,
             active_player: 0,
-        };
-        for i in 0..DIMX {
-            grid.fields.push(Vec::with_capacity(DIMY));
-            for j in 0..DIMY {
-                grid.fields[i].push(Field::new([i, j]))
-            };
-        };
-        grid
+        }
     }
 
-    fn click(&mut self, x: usize, y: usize) {
+    fn click(&mut self, x: i32, y: i32) {
         match self.state {
             State::AcceptingInput => { },
             _ => return
@@ -161,8 +170,8 @@ impl Grid {
         if x >= DIMX || y >= DIMY {
             return
         }
-
-        match self.fields[x][y].add(self.active_player) {
+        let active_player = self.active_player;
+        match self.cell_mut(x+y*I).add(active_player) {
             Ok(_) => {
                 self.active_player = (self.active_player + 1) % PLAYER_COUNT;
             },
@@ -188,8 +197,8 @@ impl Grid {
                 canvas.filled_pie(x-20, y, 20, 160, 200, Color::RGB(0, 0, 0))?;
             }
         }
-        for field in self.fields.iter().flatten() {
-            field.draw(canvas)?;
+        for cell in self.cells.iter() {
+            cell.draw(canvas)?;
         }
         Ok(())
     }
@@ -223,7 +232,7 @@ pub fn main() -> Result<(), String> {
                     break 'running
                 },
                 Event::MouseButtonDown {x, y, .. } => {
-                    grid.click(x as usize, y as usize);
+                    grid.click(x, y);
                 },
                 _ => {}
             }
