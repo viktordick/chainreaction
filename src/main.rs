@@ -4,13 +4,15 @@ extern crate num;
 use std::cmp::min;
 use std::vec::Vec;
 use num::complex;
+use std::time::Duration;
 
-use sdl2::pixels::Color;
+use sdl2::video::{Window,WindowContext};
+use sdl2::render::{Canvas,Texture,TextureCreator};
+use sdl2::surface::Surface;
+use sdl2::rect::Rect;
+use sdl2::pixels::{Color,PixelFormatEnum};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
-use std::time::Duration;
-use sdl2::render::Canvas;
-use sdl2::video::Window;
 use sdl2::gfx::primitives::DrawRenderer;
 
 const DIMX: i32 = 8;
@@ -74,14 +76,6 @@ impl Marble {
         self.pos = self.target
             + ((self.pos - self.target) * (remaining_steps-STEPS_PAUSE))
             / (remaining_steps - STEPS_PAUSE + 1);
-    }
-
-    fn draw(&self, canvas: &mut Canvas<Window>, color: Color) -> Result<(), String> {
-        let x = self.pos.re as i16;
-        let y = self.pos.im as i16;
-        canvas.aa_circle(x, y, 15, color)?;
-        canvas.filled_circle(x, y, 15, color)?;
-        Ok(())
     }
 }
 
@@ -194,21 +188,6 @@ impl Cell {
         self.marbles.push(marble);
         self.num_transients += 1;
     }
-
-    fn draw(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
-        let center = self.coord * 100 + Complex::new(50, 50);
-        for direction in 0..4 {
-            if !self.has_neighbor[direction] {
-                continue
-            }
-            let pos = center + 25*DIRECTIONS[direction];
-            let x = pos.re as i16;
-            let y = pos.im as i16;
-            canvas.filled_circle(x, y, 15, Color::RGB(255, 255, 255))?;
-            canvas.aa_circle(x, y, 15, Color::RGB(0, 0, 0))?;
-        }
-        Ok(())
-    }
 }
 
 enum State {
@@ -225,6 +204,9 @@ struct Grid {
 }
 
 impl Grid {
+    fn cell(&self, coordinates: Complex) -> &Cell {
+        &self.cells[(DIMY*coordinates.re + coordinates.im) as usize]
+    }
     fn cell_mut(&mut self, coordinates: Complex) -> &mut Cell {
         &mut self.cells[(DIMY*coordinates.re + coordinates.im) as usize]
     }
@@ -338,40 +320,134 @@ impl Grid {
             self.next_player();
         }
     }
-    
-    fn draw(&self, canvas: &mut Canvas<Window>) -> Result<(), String> {
-        canvas.set_draw_color(Color::RGB(200, 200, 200));
-        canvas.clear();
-        for i in 0..DIMX + 1 {
-            canvas.vline((i*100) as i16, 0, 100*DIMY as i16, Color::RGB(0, 0, 0))?;
+}
+
+struct Renderer<'a> {
+    background: Texture<'a>,
+    marbles: Vec<Texture<'a>>,
+    active_marker: Texture<'a>,
+    dead_marker: Texture<'a>,
+}
+impl<'a> Renderer<'a> {
+    fn _create_texture<F>(
+        creator: &'a TextureCreator<WindowContext>,
+        width: u32,
+        height: u32,
+        f: F
+    ) -> Result<Texture, String>
+        where F: Fn(&mut Canvas<Surface>) -> Result<(), String>
+    {
+        let mut canvas = Surface::new(width, height, PixelFormatEnum::RGBA8888)
+            ?.into_canvas()?;
+        f(&mut canvas)?;
+        Ok(creator
+            .create_texture_from_surface(canvas.into_surface())
+            .map_err(|e| e.to_string())?)
+    }
+
+    fn new(creator: &'a TextureCreator<WindowContext>, grid: &Grid) -> Result<Renderer<'a>, String> {
+        let black = Color::RGB(0, 0, 0);
+
+        // Marbles
+        let mut marbles = Vec::with_capacity(grid.players.len());
+        for player in grid.players.iter() {
+            marbles.push(
+                Renderer::_create_texture(creator, 31, 31, |canvas| {
+                    canvas.filled_circle(15, 15, 15, player.color)?;
+                    Ok(())
+                })?
+            );
         }
-        for i in 0..DIMY {
-            canvas.hline(0, (100*DIMX) as i16, (i*100) as i16, Color::RGB(0, 0, 0))?;
-        }
-        for (idx, player) in self.players.iter().enumerate() {
-            let x = (DIMX * 100 + 50) as i16;
-            let y = (30 + idx * 40) as i16;
-            canvas.filled_circle(x, y, 15, player.color)?;
-            canvas.aa_circle(x, y, 15, Color::RGB(0, 0, 0))?;
-            if idx == self.active_player {
-                canvas.filled_pie(x-20, y, 20, 160, 200, Color::RGB(0, 0, 0))?;
-            }
-            if !player.alive {
-                canvas.thick_line(x-15, y-15, x+15, y+15, 2, Color::RGB(0, 0, 0))?;
-                canvas.thick_line(x-15, y+15, x+15, y-15, 2, Color::RGB(0, 0, 0))?;
-            }
-        }
-        for cell in self.cells.iter() {
-            cell.draw(canvas)?;
-        }
-        for cell in self.cells.iter() {
+
+        Ok(Renderer{
+            background: Renderer::_create_texture(
+                creator, 100*DIMX as u32 + 100, 100*DIMY as u32,
+                |canvas| {
+                    canvas.set_draw_color(Color::RGB(200, 200, 200));
+                    canvas.clear();
+
+                    for x in 0..DIMX + 1 {
+                        canvas.vline((x*100) as i16, 0, 100*DIMY as i16, black)?;
+                    }
+                    for y in 0..DIMY {
+                        canvas.hline(0, (100*DIMX) as i16, (y*100) as i16, black)?;
+                    }
+                    for x in 0..DIMX {
+                        for y in 0..DIMY {
+                            let cell = grid.cell(x+y*I);
+                            let center = x*100 + 50 + (y*100+50)*I;
+                            for direction in 0..4 {
+                                if !cell.has_neighbor[direction] {
+                                    continue
+                                }
+                                let pos = center + 25*DIRECTIONS[direction];
+                                let cx = pos.re as i16;
+                                let cy = pos.im as i16;
+                                canvas.filled_circle(cx, cy, 15, black)?;
+                                canvas.filled_circle(cx, cy, 13, Color::RGB(255, 255, 255))?;
+                            }
+                        }
+                    }
+
+                    for (idx, player) in grid.players.iter().enumerate() {
+                        let x = (DIMX * 100 + 50) as i16;
+                        let y = (30 + idx * 40) as i16;
+                        canvas.filled_circle(x, y, 15, player.color)?;
+                    }
+                    Ok(())
+                },
+            )?,
+            marbles: marbles,
+            active_marker: Renderer::_create_texture(
+                creator, 31, 31, |canvas| {
+                    canvas.filled_pie(25, 15, 20, 160, 200, black)?;
+                    Ok(())
+                },
+            )?,
+            dead_marker: Renderer::_create_texture(
+                creator, 31, 31, |canvas| {
+                    canvas.thick_line(0, 0, 30, 30, 3, black)?;
+                    canvas.thick_line(0, 30, 30, 0, 3, black)?;
+                    Ok(())
+                },
+            )?,
+        })
+    }
+
+    fn update(&self, canvas: &mut Canvas<Window>, grid: &Grid) -> Result<(), String>{
+        canvas.copy(&self.background, None, None)?;
+        for cell in grid.cells.iter() {
             for marble in cell.marbles.iter() {
-                marble.draw(canvas, self.players[marble.owner].color)?;
+                let rect = Rect::new(marble.pos.re-15, marble.pos.im-15, 31, 31);
+                canvas.copy(
+                    &self.marbles[marble.owner],
+                    None,
+                    Some(rect),
+                )?
             }
         }
+        let rect = Rect::new(DIMX*100 + 5, grid.active_player as i32*40 + 15, 30, 31);
+        canvas.copy(
+            &self.active_marker,
+            None,
+            Some(rect),
+        )?;
+        for (idx, player) in grid.players.iter().enumerate() {
+            if player.alive {
+                continue
+            }
+            let rect = Rect::new(DIMX*100+35, 15+idx as i32*40, 31, 31);
+            canvas.copy(
+                &self.dead_marker,
+                None,
+                Some(rect),
+            )?;
+        }
+
         Ok(())
     }
 }
+
  
 pub fn main() -> Result<(), String> {
     let sdl_context = sdl2::init()?;
@@ -388,9 +464,13 @@ pub fn main() -> Result<(), String> {
         .accelerated()
         .build()
         .map_err(|e| e.to_string())?;
- 
-    let mut event_pump = sdl_context.event_pump()?;
+
     let mut grid = Grid::new();
+
+    let texture_creator = canvas.texture_creator();
+    let renderer = Renderer::new(&texture_creator, &grid)?;
+
+    let mut event_pump = sdl_context.event_pump()?;
     'running: loop {
         canvas.set_draw_color(Color::RGB(90, 90, 90));
         canvas.clear();
@@ -407,7 +487,7 @@ pub fn main() -> Result<(), String> {
             }
         }
         grid.step();
-        grid.draw(&mut canvas)?;
+        renderer.update(&mut canvas, &grid)?;
         canvas.present();
         std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     };
