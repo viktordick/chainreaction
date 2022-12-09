@@ -35,6 +35,9 @@ const DIRECTIONS: [Complex; 4] = [
     Complex::new(0, -1),
 ];
 
+/* Color and state for each player. Once the player places their first marble, they are started. If
+ * they then at some point have no more marbles, they have lost and are no longer alive.
+ */
 struct Player {
     started: bool,
     alive: bool,
@@ -50,13 +53,16 @@ impl Player {
     }
 }
 
+/* Each marble has a current position and a target position that it moves towards with each step.
+ */
 #[derive(Clone)]
 #[derive(Copy)]
 struct Marble {
-    // current position (exact position in pixels)
+    // current position (in pixels)
     pos: Complex,
     // target position we are moving to
     target: Complex,
+    // The direction we are facing within the cell that holds us
     direction: Direction,
     owner: Owner,
 }
@@ -86,7 +92,8 @@ struct Cell {
     num_neighbors: usize,
     has_neighbor: [bool; 4],
     // For each direction, we have a vector of marbles. Some of them might be "transient",
-    // i.e. not yet to be moved away in the current animation phase.
+    // i.e. not yet to be moved away in the current animation phase because they were just added
+    // (to remove artifacts from the order in which we process the cells).
     // New marbles are added as non-transient.
     // At the start of the animation phase, we check if there are as many non-transient marbles as
     // there are neighbors - if so, we remove one from each direction and return it to the caller
@@ -95,7 +102,6 @@ struct Cell {
     marbles: Vec<Marble>,
     num_transients: usize,
 }
-
 impl Cell {
     fn new(coord: Complex) -> Cell {
         let has_neighbor = [
@@ -106,7 +112,7 @@ impl Cell {
         ];
         let mut slots = [coord; 4];
         for direction in 0..4 {
-            slots[direction] = coord * 100 + Complex::new(50, 50) + 25 * DIRECTIONS[direction];
+            slots[direction] = coord * 100 + Complex::new(35, 35) + 25 * DIRECTIONS[direction];
         }
         Cell {
             owner: None,
@@ -138,8 +144,8 @@ impl Cell {
     }
 
     fn check_overflow(&mut self) -> Vec<Marble> {
-        // If all slots have marbles, push them into the result and remove them from the cell
-        // itself.
+        // If we have at least one marble for each direction, push one of each direction into the
+        // result and remove them from the cell itself.
         if self.marbles.len() - self.num_transients < self.num_neighbors {
             return vec![]
         }
@@ -182,7 +188,7 @@ impl Cell {
                 return direction;
             }
         }
-        0 //should not happen
+        panic!("No direction found");
     }
 
     fn receive(&mut self, mut marble: Marble) {
@@ -199,6 +205,7 @@ enum State {
     Animating,
 }
 
+// The board
 struct Grid {
     cells: Vec<Cell>,
     state: State,
@@ -206,7 +213,6 @@ struct Grid {
     active_player: usize,
     players: Vec<Player>,
 }
-
 impl Grid {
     fn cell(&self, coordinates: Complex) -> &Cell {
         &self.cells[(DIMY*coordinates.re + coordinates.im) as usize]
@@ -321,6 +327,8 @@ impl Grid {
     }
 }
 
+// Rendering helper. This pre-renders all required textures and copies them to the board
+// accordingly.
 struct Renderer<'a> {
     background: Texture<'a>,
     marbles: Vec<Texture<'a>>,
@@ -328,17 +336,18 @@ struct Renderer<'a> {
     dead_marker: Texture<'a>,
 }
 impl<'a> Renderer<'a> {
-    fn _create_texture<F>(
+    // Create a canvas, allow the given CanvasDrawer function to fill it, and convert to a texture.
+    fn _create_texture<CanvasDrawer>(
         creator: &'a TextureCreator<WindowContext>,
         width: u32,
         height: u32,
-        f: F
+        draw: CanvasDrawer
     ) -> Result<Texture, String>
-        where F: Fn(&mut Canvas<Surface>) -> Result<(), String>
+        where CanvasDrawer: Fn(&mut Canvas<Surface>) -> Result<(), String>
     {
         let mut canvas = Surface::new(width, height, PixelFormatEnum::RGBA8888)
             ?.into_canvas()?;
-        f(&mut canvas)?;
+        draw(&mut canvas)?;
         Ok(creator
             .create_texture_from_surface(canvas.into_surface())
             .map_err(|e| e.to_string())?)
@@ -417,7 +426,7 @@ impl<'a> Renderer<'a> {
         canvas.copy(&self.background, None, None)?;
         for cell in grid.cells.iter() {
             for marble in cell.marbles.iter() {
-                let rect = Rect::new(marble.pos.re-15, marble.pos.im-15, 31, 31);
+                let rect = Rect::new(marble.pos.re, marble.pos.im, 31, 31);
                 canvas.copy(
                     &self.marbles[marble.owner],
                     None,
