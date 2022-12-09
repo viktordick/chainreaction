@@ -3,8 +3,9 @@ extern crate num;
 
 use std::cmp::min;
 use std::vec::Vec;
-use num::complex;
 use std::time::Duration;
+
+use num::complex;
 
 use sdl2::video::{Window,WindowContext};
 use sdl2::render::{Canvas,Texture,TextureCreator};
@@ -81,7 +82,7 @@ impl Marble {
 
 struct Cell {
     owner: Option<usize>,
-    coord: Complex,
+    slots: [Complex; 4],
     num_neighbors: usize,
     has_neighbor: [bool; 4],
     // For each direction, we have a vector of marbles. Some of them might be "transient",
@@ -103,9 +104,13 @@ impl Cell {
             coord.re > 0,
             coord.im > 0,
         ];
+        let mut slots = [coord; 4];
+        for direction in 0..4 {
+            slots[direction] = coord * 100 + Complex::new(50, 50) + 25 * DIRECTIONS[direction];
+        }
         Cell {
             owner: None,
-            coord: coord,
+            slots: slots,
             has_neighbor: has_neighbor,
             num_neighbors: has_neighbor.iter().map(|x| if *x {1} else {0}).sum(),
             marbles: Vec::with_capacity(9),
@@ -126,8 +131,7 @@ impl Cell {
             if !free[direction] {
                 continue;
             }
-            let coord = self.coord * 100 + Complex::new(50, 50) + 25*DIRECTIONS[direction];
-            self.marbles.push(Marble::new(coord, owner, direction));
+            self.marbles.push(Marble::new(self.slots[direction], owner, direction));
             break;
         }
         Ok(())
@@ -184,7 +188,7 @@ impl Cell {
     fn receive(&mut self, mut marble: Marble) {
         self.owner = Some(marble.owner);
         marble.direction = self.target_direction(marble.direction);
-        marble.target = self.coord * 100 + Complex::new(50, 50) + 25*DIRECTIONS[marble.direction];
+        marble.target = self.slots[marble.direction];
         self.marbles.push(marble);
         self.num_transients += 1;
     }
@@ -256,11 +260,6 @@ impl Grid {
             _ => return
         }
 
-        let x = x/100;
-        let y = y/100;
-        if x >= DIMX || y >= DIMY {
-            return
-        }
         let active_player = self.active_player;
         self.players[active_player].started = true;
         let coord = x+y*I;
@@ -481,7 +480,11 @@ pub fn main() -> Result<(), String> {
                     break 'running
                 },
                 Event::MouseButtonDown {x, y, .. } => {
-                    grid.click(x, y);
+                    let x = x/100;
+                    let y = y/100;
+                    if x < DIMX && y < DIMY {
+                        grid.click(x, y);
+                    }
                 },
                 _ => {}
             }
