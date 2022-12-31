@@ -353,6 +353,16 @@ impl<'a> Renderer<'a> {
             .map_err(|e| e.to_string())?)
     }
 
+    fn gradient(canvas: &Canvas<Surface>, color: Color, cx: i16, cy: i16) -> Result<(), String> {
+        for i in 0..32 {
+            let mut color = color;
+            color.a = (256 - (((31-i) as u32 * 140)/32) as u16) as u8;
+            let halflength = ((15*15-(i-15)*(i-15)) as f64).sqrt() as i16;
+            canvas.hline(cx-halflength, cx+halflength, cy-15+i, color)?;
+        }
+        Ok(())
+    }
+
     fn new(creator: &'a TextureCreator<WindowContext>, grid: &Grid) -> Result<Renderer<'a>, String> {
         let black = Color::RGB(0, 0, 0);
 
@@ -361,7 +371,7 @@ impl<'a> Renderer<'a> {
         for player in grid.players.iter() {
             marbles.push(
                 Renderer::_create_texture(creator, 31, 31, |canvas| {
-                    canvas.filled_circle(15, 15, 15, player.color)?;
+                    Renderer::gradient(&canvas, player.color, 15, 15)?;
                     Ok(())
                 })?
             );
@@ -391,8 +401,7 @@ impl<'a> Renderer<'a> {
                                 let pos = center + 25*DIRECTIONS[direction];
                                 let cx = pos.re as i16;
                                 let cy = pos.im as i16;
-                                canvas.filled_circle(cx, cy, 15, black)?;
-                                canvas.filled_circle(cx, cy, 13, Color::RGB(255, 255, 255))?;
+                                Renderer::gradient(&canvas, Color::RGB(255, 255, 255), cx, cy)?;
                             }
                         }
                     }
@@ -400,7 +409,8 @@ impl<'a> Renderer<'a> {
                     for (idx, player) in grid.players.iter().enumerate() {
                         let x = (DIMX * 100 + 50) as i16;
                         let y = (30 + idx * 40) as i16;
-                        canvas.filled_circle(x, y, 15, player.color)?;
+                        Renderer::gradient(&canvas, player.color, x, y)?;
+                        //canvas.filled_circle(x, y, 15, player.color)?;
                     }
                     Ok(())
                 },
