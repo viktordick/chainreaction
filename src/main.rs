@@ -212,6 +212,7 @@ struct Grid {
     steps: i32,
     active_player: usize,
     players: Vec<Player>,
+    selected: Complex,
 }
 impl Grid {
     fn cell(&self, coordinates: Complex) -> &Cell {
@@ -229,7 +230,7 @@ impl Grid {
         }
         let mut players = vec![];
         players.push(Player::new(200, 0, 0));
-        players.push(Player::new(0, 200, 0));
+        players.push(Player::new(0, 150, 0));
         players.push(Player::new(0, 0, 200));
         Grid{
             cells: cells,
@@ -237,6 +238,7 @@ impl Grid {
             steps: 0,
             players: players,
             active_player: 0,
+            selected: Complex::new(0, 0),
         }
     }
 
@@ -257,6 +259,23 @@ impl Grid {
             if self.players[self.active_player].alive {
                 return
             }
+        }
+    }
+
+    fn keydown(&mut self, keycode: Keycode) {
+        match keycode {
+            Keycode::Right =>
+                self.selected.re = (self.selected.re + 1) % DIMX,
+            Keycode::Left =>
+                self.selected.re = (self.selected.re + DIMX - 1) % DIMX,
+            Keycode::Down =>
+                self.selected.im = (self.selected.im + 1) % DIMY,
+            Keycode::Up =>
+                self.selected.im = (self.selected.im + DIMY - 1) % DIMY,
+            Keycode::Return => {
+                self.click(self.selected.re, self.selected.im);
+            }
+            _ => return
         }
     }
 
@@ -334,6 +353,7 @@ struct Renderer<'a> {
     marbles: Vec<Texture<'a>>,
     active_marker: Texture<'a>,
     dead_marker: Texture<'a>,
+    selected: Texture<'a>,
 }
 impl<'a> Renderer<'a> {
     // Create a canvas, allow the given CanvasDrawer function to fill it, and convert to a texture.
@@ -353,11 +373,12 @@ impl<'a> Renderer<'a> {
             .map_err(|e| e.to_string())?)
     }
 
-    fn gradient(canvas: &Canvas<Surface>, color: Color, cx: i16, cy: i16) -> Result<(), String> {
-        for i in 0..32 {
+    fn gradient(canvas: &Canvas<Surface>, cx: i16, cy: i16, color: Color) -> Result<(), String> {
+        for i in 0..31 {
             let mut color = color;
             color.a = (256 - (((31-i) as u32 * 140)/32) as u16) as u8;
             let halflength = ((15*15-(i-15)*(i-15)) as f64).sqrt() as i16;
+            canvas.hline(cx-halflength, cx+halflength, cy-15+i, Color::RGB(200, 200, 200))?;
             canvas.hline(cx-halflength, cx+halflength, cy-15+i, color)?;
         }
         Ok(())
@@ -371,7 +392,7 @@ impl<'a> Renderer<'a> {
         for player in grid.players.iter() {
             marbles.push(
                 Renderer::_create_texture(creator, 31, 31, |canvas| {
-                    Renderer::gradient(&canvas, player.color, 15, 15)?;
+                    Renderer::gradient(&canvas, 15, 15, player.color)?;
                     Ok(())
                 })?
             );
@@ -401,7 +422,7 @@ impl<'a> Renderer<'a> {
                                 let pos = center + 25*DIRECTIONS[direction];
                                 let cx = pos.re as i16;
                                 let cy = pos.im as i16;
-                                Renderer::gradient(&canvas, Color::RGB(255, 255, 255), cx, cy)?;
+                                Renderer::gradient(&canvas, cx, cy, Color::RGB(255, 255, 255))?;
                             }
                         }
                     }
@@ -409,8 +430,7 @@ impl<'a> Renderer<'a> {
                     for (idx, player) in grid.players.iter().enumerate() {
                         let x = (DIMX * 100 + 50) as i16;
                         let y = (30 + idx * 40) as i16;
-                        Renderer::gradient(&canvas, player.color, x, y)?;
-                        //canvas.filled_circle(x, y, 15, player.color)?;
+                        Renderer::gradient(&canvas, x, y, player.color)?;
                     }
                     Ok(())
                 },
@@ -426,6 +446,15 @@ impl<'a> Renderer<'a> {
                 creator, 31, 31, |canvas| {
                     canvas.thick_line(0, 0, 30, 30, 3, black)?;
                     canvas.thick_line(0, 30, 30, 0, 3, black)?;
+                    Ok(())
+                },
+            )?,
+            selected: Renderer::_create_texture(
+                creator, 100, 100, |canvas| {
+                    canvas.thick_line(1, 1, 100, 1, 2, black)?;
+                    canvas.thick_line(1, 1, 1, 100, 2, black)?;
+                    canvas.thick_line(100, 1, 100, 100, 2, black)?;
+                    canvas.thick_line(1, 100, 100, 100, 2, black)?;
                     Ok(())
                 },
             )?,
@@ -461,6 +490,13 @@ impl<'a> Renderer<'a> {
                 Some(rect),
             )?;
         }
+        let x = grid.selected.re as i32;
+        let y = grid.selected.im as i32;
+        canvas.copy(
+            &self.selected,
+            None,
+            Some(Rect::new(x*100, y*100, 100, 100)),
+        )?;
 
         Ok(())
     }
@@ -498,6 +534,7 @@ pub fn main() -> Result<(), String> {
                 Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
                     break 'running
                 },
+                Event::KeyDown { keycode, .. } => grid.keydown(keycode.unwrap()),
                 Event::MouseButtonDown {x, y, .. } => {
                     let x = x/100;
                     let y = y/100;
