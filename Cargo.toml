@@ -11,4 +11,4 @@ num = "0.4.0"
 [dependencies.sdl2]
 version = "0.35.2"
 default-features = false
-features = ["gfx"]
+features = ["gfx", "ttf"]

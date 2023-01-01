@@ -1,6 +1,7 @@
 extern crate sdl2; 
 extern crate num;
 
+use std::str;
 use std::cmp::min;
 use std::vec::Vec;
 use std::time::Duration;
@@ -15,6 +16,7 @@ use sdl2::pixels::{Color,PixelFormatEnum};
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
 use sdl2::gfx::primitives::DrawRenderer;
+use sdl2::ttf;
 
 const DIMX: i32 = 8;
 const DIMY: i32 = 6;
@@ -384,7 +386,39 @@ impl<'a> Renderer<'a> {
         Ok(())
     }
 
-    fn new(creator: &'a TextureCreator<WindowContext>, grid: &Grid) -> Result<Renderer<'a>, String> {
+    fn add_coords(background: &mut Canvas<Surface>, font: &ttf::Font) -> Result<(), String> {
+        let creator = background.texture_creator();
+        let mut render = |character: u8, posx: i32, posy: i32| -> Result<(), String> {
+            let bytes: [u8; 1] = [character];
+            let s = str::from_utf8(&bytes).map_err(|e| e.to_string())?;
+            let rendered = font.render(&s).blended(Color::RGB(0,0,0))
+                .map_err(|e| e.to_string())?;
+            let texture = rendered.as_texture(&creator)
+                .map_err(|e| e.to_string())?;
+            background.copy(
+                &texture,
+                None,
+                Some(
+                    Rect::new(
+                        posx - rendered.width() as i32/2,
+                        posy - rendered.height() as i32/2,
+                        rendered.width(),
+                        rendered.height()
+                    )
+                )
+            )?;
+            Ok(())
+        };
+        for i in 0..DIMX {
+            render(65+i as u8, 100*i + 50, 20)?;
+        };
+        for i in 0..DIMY {
+            render(49+i as u8, 15, 100*i+50)?;
+        }
+        Ok(())
+    }
+
+    fn new(creator: &'a TextureCreator<WindowContext>, grid: &Grid, font: &ttf::Font) -> Result<Renderer<'a>, String> {
         let black = Color::RGB(0, 0, 0);
 
         // Marbles
@@ -401,10 +435,10 @@ impl<'a> Renderer<'a> {
         Ok(Renderer{
             background: Renderer::_create_texture(
                 creator, 100*DIMX as u32 + 100, 100*DIMY as u32,
-                |canvas| {
+                |mut canvas| {
                     canvas.set_draw_color(Color::RGB(200, 200, 200));
                     canvas.clear();
-
+                    Renderer::add_coords(&mut canvas, &font)?;
                     for x in 0..DIMX + 1 {
                         canvas.vline((x*100) as i16, 0, 100*DIMY as i16, black)?;
                     }
@@ -511,6 +545,9 @@ pub fn main() -> Result<(), String> {
         .position_centered()
         .build()
         .map_err(|e| e.to_string())?;
+
+    let fontcontext = ttf::init().map_err(|e| e.to_string())?;
+    let font = fontcontext.load_font("/usr/share/fonts/liberation/LiberationMono-Regular.ttf", 24)?;
  
     let mut canvas = window
         .into_canvas()
@@ -522,7 +559,7 @@ pub fn main() -> Result<(), String> {
     let mut grid = Grid::new();
 
     let texture_creator = canvas.texture_creator();
-    let renderer = Renderer::new(&texture_creator, &grid)?;
+    let renderer = Renderer::new(&texture_creator, &grid, &font)?;
 
     let mut event_pump = sdl_context.event_pump()?;
     'running: loop {
