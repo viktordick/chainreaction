@@ -1,7 +1,12 @@
 use num::complex;
 
+use arr_macro::arr;
+
 type Point = complex::Complex<i32>;
 type Owner = usize;
+
+const DIMX: usize = 8;
+const DIMY: usize = 6;
 
 // main directions
 const DIRECTIONS: [Point; 4] = [
@@ -44,10 +49,10 @@ struct Cell {
 }
 
 impl Cell {
-    fn new(coord: Point, dims: Point) -> Cell {
+    fn new(coord: Point) -> Cell {
         let has_neighbor = [
-            coord.re < dims.re-1,
-            coord.im < dims.im-1,
+            coord.re < DIMX as i32 - 1,
+            coord.im < DIMY as i32 - 1,
             coord.re > 0,
             coord.im > 0,
         ];
@@ -124,7 +129,7 @@ impl Cell {
     fn sort_receiving(&mut self) {
         let received: u8 = self.slots.iter().flatten()
             .map(|x| &x.marbles[2]).flatten().map(|_| 1).sum();
-        if (received == 0) {
+        if received == 0 {
             return;
         }
         
@@ -166,4 +171,27 @@ impl Cell {
         self.count == self.neighbors
     }
 
+}
+
+pub struct Grid {
+    cells: [Cell; DIMX*DIMY],
+}
+
+impl Grid {
+    fn new() -> Grid {
+        /* Initialize Grid (on the stack!) */
+        let mut x: usize = 0;
+        let mut y: usize = 0;
+        Grid {
+            cells: arr![Cell::new({
+                let coord = Point::new(x as i32, y as i32);
+                y += 1;
+                if y == DIMY {
+                    y = 0;
+                    x += 1;
+                }
+                coord
+            }); 48],  // NOTE: This is DIMX*DIMY, but unfortunately we need a literal here
+        }
+    }
 }
