@@ -1,6 +1,8 @@
 extern crate sdl2; 
 extern crate num;
 
+mod grid;
+
 use std::str;
 use std::cmp::min;
 use std::vec::Vec;
