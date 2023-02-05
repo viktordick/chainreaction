@@ -5,6 +5,11 @@ use arr_macro::arr;
 type Point = complex::Complex<i32>;
 type Owner = usize;
 
+enum State {
+    AcceptingInput,
+    Animating(i32), // number of steps for animation
+}
+
 const DIMX: usize = 8;
 const DIMY: usize = 6;
 
@@ -29,12 +34,15 @@ impl PointIter {
 impl Iterator for PointIter {
     type Item = Point;
     fn next(&mut self) -> Option<Self::Item> {
+        if self.p.re == DIMX as i32{
+            return None;
+        }
         self.p.im += 1;
         if self.p.im == DIMY as i32{
             self.p.im = 0;
             self.p.re += 1
         }
-        if self.p.re == DIMX as i32 && self.p.im == DIMY as i32 {
+        if self.p.re >= DIMX as i32 {
             None
         } else {
             Some(self.p)
@@ -97,6 +105,22 @@ impl Cell {
         }
     }
 
+    fn full(&self) -> bool {
+        self.count == self.neighbors
+    }
+
+    fn marbles(&self) -> impl Iterator<Item=&Marble> + '_ {
+        self.slots.iter().flatten().map(
+            |slots: &Slots| slots.marbles.iter().flatten()
+        ).flatten()
+    }
+
+    fn marbles_mut(&mut self) -> impl Iterator<Item=&mut Marble> + '_ {
+        self.slots.iter_mut().flatten().map(
+            |slots: &mut Slots| slots.marbles.iter_mut().flatten()
+        ).flatten()
+    }
+
     /* Add a marble to a cell that has room for it (in first slot)
      * Returns Err variant if there is no room (should not happen) or if the owner does not match.
      */
@@ -129,10 +153,6 @@ impl Cell {
         Ok(())
     }
 
-    fn full(&self) -> bool {
-        self.count == self.neighbors
-    }
-
     /* Remove and return one marble from each direction that is to be sent */
     fn send(&mut self) -> [Option<Marble>; 4] {
         let mut result = [None; 4];
@@ -151,7 +171,7 @@ impl Cell {
     /* Receive one marble from a neighbor */
     fn receive(&mut self, direction: usize, marble: Marble) {
         self.owner = Some(marble.owner);
-        self.slots[direction].as_mut().unwrap().marbles[2].insert(marble);
+
         self.count += 1;
     }
 
@@ -161,7 +181,7 @@ impl Cell {
      * Move all marbles from Incoming slots into Outgoing or Remaining slot, possibly changing the
      * direction to make the directions balanced.
      */
-    fn sort_receiving(&mut self) {
+    fn sort_received(&mut self) {
         let received: u8 = self.slots.iter().flatten()
             .map(|x| &x.marbles[2]).flatten().map(|_| 1).sum();
         if received == 0 {
@@ -171,46 +191,20 @@ impl Cell {
         // TODO
     }
 
-    /* At the end of a movement, change the owner of all marbles in this cell to the owner of the
-     * cell
-     */
-    fn adjust_owner(&mut self) {
-        let owner = self.owner.unwrap();
-    }
-
-
-
-    /* Sort all incoming marbles into other slots, changing the owner of all marbles if any marbles
-     * arrived.
-     * */
-    fn sort_incoming(&mut self) {
-        let mut chown = false;
-        for marble in self.slots.iter().flatten().map(|x| &x.marbles[2]).flatten() {
-            if self.owner != Some(marble.owner) {
-                chown = true;
-                self.owner = Some(marble.owner);
-                break;
-            }
-        };
-        if chown {
-            for mut marble in self.slots.iter_mut().flatten()
-                .map(|x| &mut x.marbles).flatten().flatten() {
-                    marble.owner = self.owner.unwrap();
-                }
-        };
-        for mut slots in self.slots.iter_mut().flatten() {
-            match slots.marbles[2].take() {
-                None => continue,
-                Some(mut marble) => {
-                    match slots.marbles[0] {
-                        None => slots.marbles[0].insert(marble),
-                        Some(_) => slots.marbles[1].insert(marble),
-                    };
+    fn step(&mut self, steps: i32) {
+        let center = self.coord * 100 + Point::new(50, 50);
+        for (direction, slots) in self.slots.iter_mut().enumerate() {
+            match slots {
+                None => (),
+                Some(slots) => {
+                    let target = center + 25*DIRECTIONS[direction];
+                    for mut marble in slots.marbles.iter_mut().flatten() {
+                        marble.step(target, steps);
+                    }
                 }
             }
         }
     }
-
 }
 
 pub struct Grid {
@@ -246,9 +240,27 @@ impl Grid {
         &mut self.cells[Self::idx(p)]
     }
 
-    /* At the end of a movement, send marbles from all full cells to their neighbors
+    /* After a adding a marble that fills the field or at the end of an animation, this is called
+     * to move marbles from full cells to their neighbors.
+     * This does not directly change the position of the marbles, but it changes what cell they
+     * belong to, which determines their target position. The owner of the neighboring cells is
+     * also changed, but the owner of the already existing marbles is changed at the start of the
+     * next call to spread().
      */
-    pub fn spread(&mut self) {
+    fn spread(&mut self) -> State {
+        // Change ownership of marbles
+        for cell in self.cells.iter_mut() {
+            match cell.owner {
+                None => (),
+                Some(owner) => {
+                    for marble in cell.marbles_mut() {
+                        marble.owner = owner;
+                    }
+                }
+            }
+        }
+        // Spread out
+        let mut any_moved = false;
         for coord in PointIter::new() {
             if !self.cell(coord).full() {
                 continue
@@ -261,13 +273,57 @@ impl Grid {
                     Some(marble) => {
                         let neighbor = self.cell_mut(coord + DIRECTIONS[direction]);
                         neighbor.receive((direction+2)%4, marble);
+                        any_moved = true;
                     }
                 }
             }
         }
-        for coord in PointIter::new() {
-            self.cell_mut(coord).sort_receiving();
+        if any_moved {
+            for cell in self.cells.iter_mut() {
+                cell.sort_received();
+            }
+            State::Animating(15)
+        } else {
+            State::AcceptingInput
         }
+    }
 
+    pub fn marbles(&self) -> impl Iterator<Item=&Marble> + '_ {
+        self.cells.iter().map(
+            |cell: &Cell| cell.marbles()
+        ).flatten()
+    }
+
+    /* Try to add a marble at the given coordinates.
+     * Returns the Err variant if the cell belongs to someone else.
+     * May be called in AcceptingInput state.
+     */
+    pub fn add_marble(&mut self, coord: Point, owner: Owner) -> Result<State, ()> {
+        let mut cell = self.cell_mut(coord / 100);
+        cell.add_marble(owner)?;
+        Ok(
+            if cell.full() {
+                self.spread()
+            } else {
+                State::AcceptingInput
+            }
+        )
+    }
+
+    /* Perform one animation step */
+    pub fn step(&mut self, state: State) -> State {
+        match state {
+            State::AcceptingInput => state,
+            State::Animating(steps) => {
+                for cell in self.cells.iter_mut() {
+                    cell.step(steps);
+                }
+                if steps == 0 {
+                    self.spread()
+                } else {
+                    State::Animating(steps-1)
+                }
+            }
+        }
     }
 }
