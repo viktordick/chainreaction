@@ -16,11 +16,45 @@ const DIRECTIONS: [Point; 4] = [
     Point::new(0, -1),
 ];
 
+struct PointIter {
+    p: Point,
+}
+impl PointIter {
+    fn new() -> PointIter {
+        PointIter {
+            p: Point::new(0, 0),
+        }
+    }
+}
+impl Iterator for PointIter {
+    type Item = Point;
+    fn next(&mut self) -> Option<Self::Item> {
+        self.p.im += 1;
+        if self.p.im == DIMY as i32{
+            self.p.im = 0;
+            self.p.re += 1
+        }
+        if self.p.re == DIMX as i32 && self.p.im == DIMY as i32 {
+            None
+        } else {
+            Some(self.p)
+        }
+    }
+}
+
+
+#[derive(Clone,Copy)]
 struct Marble {
     // Absolute position in pixels
     pos: Point,
     // Which owner the marble belongs to
     owner: Owner,
+}
+impl Marble {
+    /* Move one step towards target, with 'steps' remaining steps afterwards */
+    fn step(&mut self, target: Point, steps: i32) {
+        self.pos = target + ((self.pos - target) * steps) / (steps + 1);
+    }
 }
 
 /* Each direction holds different slots for marbles */
@@ -28,7 +62,6 @@ struct Slots {
     // Residing, Incoming and Outgoing slot.
     marbles: [Option<Marble>; 3],
 }
-
 impl Slots {
     fn new(has_neighbor: bool) -> Option<Slots>{
         if has_neighbor {
@@ -47,7 +80,6 @@ struct Cell {
     // Some slots if there is a neighbor in that direction, else None
     slots: [Option<Slots>; 4],
 }
-
 impl Cell {
     fn new(coord: Point) -> Cell {
         let has_neighbor = [
@@ -101,15 +133,18 @@ impl Cell {
         self.count == self.neighbors
     }
 
-    /* Remove and return one marble that is to be sent into the given direction */
-    fn send(&mut self, direction: usize) -> Option<Marble> {
-        let result = match &mut self.slots[direction] {
-            None => None,
-            Some(slot) => slot.marbles[1].take(),
-        };
-        if result.is_some() {
-            self.count -= 1;
-        };
+    /* Remove and return one marble from each direction that is to be sent */
+    fn send(&mut self) -> [Option<Marble>; 4] {
+        let mut result = [None; 4];
+        for direction in 0..4 {
+            match &mut self.slots[direction] {
+                None => (),
+                Some(slot) => {
+                    result[direction] = slot.marbles[1].take();
+                    self.count -= 1;
+                }
+            }
+        }
         result
     }
 
@@ -136,13 +171,19 @@ impl Cell {
         // TODO
     }
 
+    /* At the end of a movement, change the owner of all marbles in this cell to the owner of the
+     * cell
+     */
+    fn adjust_owner(&mut self) {
+        let owner = self.owner.unwrap();
+    }
+
 
 
     /* Sort all incoming marbles into other slots, changing the owner of all marbles if any marbles
      * arrived.
-     * Returns if the cell is full afterwards
      * */
-    fn sort_incoming(&mut self) -> bool {
+    fn sort_incoming(&mut self) {
         let mut chown = false;
         for marble in self.slots.iter().flatten().map(|x| &x.marbles[2]).flatten() {
             if self.owner != Some(marble.owner) {
@@ -168,7 +209,6 @@ impl Cell {
                 }
             }
         }
-        self.count == self.neighbors
     }
 
 }
@@ -176,9 +216,8 @@ impl Cell {
 pub struct Grid {
     cells: [Cell; DIMX*DIMY],
 }
-
 impl Grid {
-    fn new() -> Grid {
+    pub fn new() -> Grid {
         /* Initialize Grid (on the stack!) */
         let mut x: usize = 0;
         let mut y: usize = 0;
@@ -193,5 +232,42 @@ impl Grid {
                 coord
             }); 48],  // NOTE: This is DIMX*DIMY, but unfortunately we need a literal here
         }
+    }
+
+    fn idx(p: Point) -> usize {
+        p.re as usize * DIMY + p.im as usize
+    }
+
+    fn cell(&self, p: Point) -> &Cell {
+        &self.cells[Self::idx(p)]
+    }
+
+    fn cell_mut(&mut self, p: Point) -> &mut Cell {
+        &mut self.cells[Self::idx(p)]
+    }
+
+    /* At the end of a movement, send marbles from all full cells to their neighbors
+     */
+    pub fn spread(&mut self) {
+        for coord in PointIter::new() {
+            if !self.cell(coord).full() {
+                continue
+            }
+            let sent = self.cell_mut(coord).send();
+
+            for direction in 0..4 {
+                match sent[direction] {
+                    None => continue,
+                    Some(marble) => {
+                        let neighbor = self.cell_mut(coord + DIRECTIONS[direction]);
+                        neighbor.receive((direction+2)%4, marble);
+                    }
+                }
+            }
+        }
+        for coord in PointIter::new() {
+            self.cell_mut(coord).sort_receiving();
+        }
+
     }
 }
