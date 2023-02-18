@@ -2,57 +2,54 @@ use num::complex;
 
 use arr_macro::arr;
 
-type Point = complex::Complex<i32>;
-type Owner = usize;
+use crate::game::State;
 
-enum State {
-    AcceptingInput,
-    Animating(i32), // number of steps for animation
-}
+pub type Point = complex::Complex<i32>;
+pub type Owner = usize;
 
-const DIMX: usize = 8;
-const DIMY: usize = 6;
+pub const DIMX: usize = 8;
+pub const DIMY: usize = 6;
+pub const DIM: Point = Point::new(DIMX as i32, DIMY as i32);
 
 // main directions
-const DIRECTIONS: [Point; 4] = [
+pub const DIRECTIONS: [Point; 4] = [
     Point::new(1, 0),
     Point::new(0, 1),
     Point::new(-1, 0),
     Point::new(0, -1),
 ];
 
-struct PointIter {
+pub struct PointIter {
     p: Point,
 }
 impl PointIter {
-    fn new() -> PointIter {
+    pub fn new() -> PointIter {
         PointIter {
-            p: Point::new(0, 0),
+            p: Point::new(DIM.re-1, DIM.im),
         }
     }
 }
 impl Iterator for PointIter {
     type Item = Point;
     fn next(&mut self) -> Option<Self::Item> {
-        if self.p.re == DIMX as i32{
-            return None;
-        }
-        self.p.im += 1;
-        if self.p.im == DIMY as i32{
-            self.p.im = 0;
-            self.p.re += 1
-        }
-        if self.p.re >= DIMX as i32 {
-            None
-        } else {
+        if self.p.im != 0 {
+            self.p.im -= 1;
             Some(self.p)
+        } else {
+            self.p.re -= 1;
+            self.p.im = DIM.im - 1;
+            if (self.p.re >= 0) {
+                Some(self.p)
+            } else {
+                None
+            }
         }
     }
 }
 
 
 #[derive(Clone,Copy)]
-struct Marble {
+pub struct Marble {
     // Absolute position in pixels
     pos: Point,
     // Which owner the marble belongs to
@@ -63,10 +60,16 @@ impl Marble {
     fn step(&mut self, target: Point, steps: i32) {
         self.pos = target + ((self.pos - target) * steps) / (steps + 1);
     }
+    pub fn get_owner(&self) -> Owner {
+        self.owner
+    }
+    pub fn get_pos(&self) -> Point {
+        self.pos
+    }
 }
 
 /* Each direction holds different slots for marbles */
-struct Slots {
+pub struct Slots {
     // Residing, Incoming and Outgoing slot.
     marbles: [Option<Marble>; 3],
 }
@@ -80,19 +83,19 @@ impl Slots {
     }
 }
 
-struct Cell {
+pub struct Cell {
     coord: Point,
     owner: Option<Owner>,
     neighbors: u8,
     count: u8,
     // Some slots if there is a neighbor in that direction, else None
-    slots: [Option<Slots>; 4],
+    pub slots: [Option<Slots>; 4],
 }
 impl Cell {
     fn new(coord: Point) -> Cell {
         let has_neighbor = [
-            coord.re < DIMX as i32 - 1,
-            coord.im < DIMY as i32 - 1,
+            coord.re < DIM.re - 1,
+            coord.im < DIM.im - 1,
             coord.re > 0,
             coord.im > 0,
         ];
@@ -109,7 +112,7 @@ impl Cell {
         self.count == self.neighbors
     }
 
-    fn marbles(&self) -> impl Iterator<Item=&Marble> + '_ {
+    pub fn marbles(&self) -> impl Iterator<Item=&Marble> + '_ {
         self.slots.iter().flatten().map(
             |slots: &Slots| slots.marbles.iter().flatten()
         ).flatten()
@@ -171,7 +174,6 @@ impl Cell {
     /* Receive one marble from a neighbor */
     fn receive(&mut self, direction: usize, marble: Marble) {
         self.owner = Some(marble.owner);
-
         self.count += 1;
     }
 
@@ -198,7 +200,7 @@ impl Cell {
                 None => (),
                 Some(slots) => {
                     let target = center + 25*DIRECTIONS[direction];
-                    for mut marble in slots.marbles.iter_mut().flatten() {
+                    for marble in slots.marbles.iter_mut().flatten() {
                         marble.step(target, steps);
                     }
                 }
@@ -213,13 +215,13 @@ pub struct Grid {
 impl Grid {
     pub fn new() -> Grid {
         /* Initialize Grid (on the stack!) */
-        let mut x: usize = 0;
-        let mut y: usize = 0;
+        let mut x: i32 = 0;
+        let mut y: i32 = 0;
         Grid {
             cells: arr![Cell::new({
-                let coord = Point::new(x as i32, y as i32);
+                let coord = Point::new(x, y);
                 y += 1;
-                if y == DIMY {
+                if y == DIM.im {
                     y = 0;
                     x += 1;
                 }
@@ -227,16 +229,16 @@ impl Grid {
             }); 48],  // NOTE: This is DIMX*DIMY, but unfortunately we need a literal here
         }
     }
-
+    
     fn idx(p: Point) -> usize {
         p.re as usize * DIMY + p.im as usize
     }
 
-    fn cell(&self, p: Point) -> &Cell {
+    pub fn cell(&self, p: Point) -> &Cell {
         &self.cells[Self::idx(p)]
     }
 
-    fn cell_mut(&mut self, p: Point) -> &mut Cell {
+    pub fn cell_mut(&mut self, p: Point) -> &mut Cell {
         &mut self.cells[Self::idx(p)]
     }
 
@@ -299,7 +301,7 @@ impl Grid {
      * May be called in AcceptingInput state.
      */
     pub fn add_marble(&mut self, coord: Point, owner: Owner) -> Result<State, ()> {
-        let mut cell = self.cell_mut(coord / 100);
+        let cell = self.cell_mut(coord);
         cell.add_marble(owner)?;
         Ok(
             if cell.full() {
