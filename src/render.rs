@@ -116,7 +116,7 @@ impl<'a> Renderer<'a> {
                         let cell = game.grid().cell(coord);
                         let center = coord*100 + Point::new(50, 50);
                         for direction in 0..4 {
-                            if cell.slots[direction].is_none() {
+                            if !cell.has_neighbor(direction) {
                                 continue
                             }
                             let pos = center + 25*DIRECTIONS[direction];

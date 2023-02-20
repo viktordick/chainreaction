@@ -38,7 +38,7 @@ impl Iterator for PointIter {
         } else {
             self.p.re -= 1;
             self.p.im = DIM.im - 1;
-            if (self.p.re >= 0) {
+            if self.p.re >= 0 {
                 Some(self.p)
             } else {
                 None
@@ -68,28 +68,14 @@ impl Marble {
     }
 }
 
-/* Each direction holds different slots for marbles */
-pub struct Slots {
-    // Residing, Incoming and Outgoing slot.
-    marbles: [Option<Marble>; 3],
-}
-impl Slots {
-    fn new(has_neighbor: bool) -> Option<Slots>{
-        if has_neighbor {
-            Some(Slots {marbles: [None, None, None]})
-        } else {
-            None
-        }
-    }
-}
-
 pub struct Cell {
     coord: Point,
     owner: Option<Owner>,
     neighbors: u8,
     count: u8,
-    // Some slots if there is a neighbor in that direction, else None
-    pub slots: [Option<Slots>; 4],
+    has_neighbor: [bool; 4],
+    // Residing, Incoming and Outgoing for each direction
+    slots: [[Option<Marble>; 4]; 3],
 }
 impl Cell {
     fn new(coord: Point) -> Cell {
@@ -102,26 +88,31 @@ impl Cell {
         Cell {
             coord: coord,
             owner: None,
-            slots: has_neighbor.map(Slots::new),
+            has_neighbor: has_neighbor,
+            slots: [[None; 4]; 3],
             neighbors: has_neighbor.into_iter().map(|x| x as u8).sum(),
             count: 0,
         }
     }
+
+    pub fn has_neighbor(&self, direction: usize) -> bool { self.has_neighbor[direction] }
+    fn residing(&self) -> &[Option<Marble>; 4] { &self.slots[0] }
+    fn incoming(&self) -> &[Option<Marble>; 4] { &self.slots[1] }
+    fn outgoing(&self) -> &[Option<Marble>; 4] { &self.slots[2] }
+    fn residing_mut(&mut self) -> &mut [Option<Marble>; 4] { &mut self.slots[0] }
+    fn incoming_mut(&mut self) -> &mut [Option<Marble>; 4] { &mut self.slots[1] }
+    fn outgoing_mut(&mut self) -> &mut [Option<Marble>; 4] { &mut self.slots[2] }
 
     fn full(&self) -> bool {
         self.count == self.neighbors
     }
 
     pub fn marbles(&self) -> impl Iterator<Item=&Marble> + '_ {
-        self.slots.iter().flatten().map(
-            |slots: &Slots| slots.marbles.iter().flatten()
-        ).flatten()
+        self.slots.iter().flatten().flatten()
     }
 
     fn marbles_mut(&mut self) -> impl Iterator<Item=&mut Marble> + '_ {
-        self.slots.iter_mut().flatten().map(
-            |slots: &mut Slots| slots.marbles.iter_mut().flatten()
-        ).flatten()
+        self.slots.iter_mut().flatten().flatten()
     }
 
     /* Add a marble to a cell that has room for it (in first slot)
@@ -138,14 +129,10 @@ impl Cell {
         self.count += 1;
         let center = self.coord * 100 + Point::new(50, 50);
         for direction in 0..4 {
-            if self.slots[direction].is_none() {
+            if !self.has_neighbor[direction] || self.residing()[direction].is_some() {
                 continue;
             }
-            let mut slots = &mut self.slots[direction].as_mut().unwrap();
-            if slots.marbles[0].is_some() {
-                continue;
-            }
-            slots.marbles[0] = Some(
+            self.residing_mut()[direction].get_or_insert_with(|| 
                 Marble {
                     owner: owner,
                     pos: center + 25 * DIRECTIONS[direction],
@@ -153,28 +140,25 @@ impl Cell {
             );
             break
         }
+        if self.full() {
+            for direction in 0..4 {
+                if let Some(marble) = self.residing_mut()[direction].take() {
+                    self.outgoing_mut()[direction] = Some(marble);
+                }
+            }
+        }
         Ok(())
     }
 
     /* Remove and return one marble from each direction that is to be sent */
     fn send(&mut self) -> [Option<Marble>; 4] {
-        let mut result = [None; 4];
-        for direction in 0..4 {
-            match &mut self.slots[direction] {
-                None => (),
-                Some(slot) => {
-                    result[direction] = slot.marbles[1].take();
-                    self.count -= 1;
-                }
-            }
-        }
-        result
+        self.outgoing_mut().map(|mut x| x.take())
     }
 
     /* Receive one marble from a neighbor */
     fn receive(&mut self, direction: usize, marble: Marble) {
         self.owner = Some(marble.owner);
-        self.count += 1;
+        self.incoming_mut()[direction] = Some(marble);
     }
 
     /* This is called after all full cells have send() all marbles that are to be sent and their
@@ -184,25 +168,25 @@ impl Cell {
      * direction to make the directions balanced.
      */
     fn sort_received(&mut self) {
-        let received: u8 = self.slots.iter().flatten()
-            .map(|x| &x.marbles[2]).flatten().map(|_| 1).sum();
+        let received: u8 = self.incoming().iter().flatten().map(|_| 1).sum();
         if received == 0 {
             return;
         }
-        
-        // TODO
+        self.count += received;
+        if self.full() {
+            // Collect outgoing marbles, from incoming or residing
+        } else {
+            // Sort incoming marbles into residing
+        }
     }
 
     fn step(&mut self, steps: i32) {
         let center = self.coord * 100 + Point::new(50, 50);
-        for (direction, slots) in self.slots.iter_mut().enumerate() {
-            match slots {
-                None => (),
-                Some(slots) => {
-                    let target = center + 25*DIRECTIONS[direction];
-                    for marble in slots.marbles.iter_mut().flatten() {
-                        marble.step(target, steps);
-                    }
+        for direction in 0..4 {
+            let target = center + 25*DIRECTIONS[direction];
+            for slot in 0..3 {
+                if let Some(mut marble) = self.slots[slot][direction] {
+                    marble.step(target, steps);
                 }
             }
         }
