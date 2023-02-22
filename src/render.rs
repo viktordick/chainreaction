@@ -178,7 +178,7 @@ impl<'a> Renderer<'a> {
             Some(rect),
         )?;
         for (idx, player) in game.players().enumerate() {
-            if player.alive() {
+            if player.alive {
                 continue
             }
             let rect = Rect::new(DIMX as i32*100+35, 15+idx as i32*40, 31, 31);

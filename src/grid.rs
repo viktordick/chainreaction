@@ -1,8 +1,10 @@
+use std::ops::{Index,IndexMut};
+
 use num::complex;
 
 use arr_macro::arr;
 
-use crate::game::State;
+use crate::game::{State, Player};
 
 pub type Point = complex::Complex<i32>;
 pub type Owner = usize;
@@ -68,6 +70,29 @@ impl Marble {
     }
 }
 
+// One set of slots, with up to one marble per direction. Residing, Incoming or Outgoing
+struct Slots {
+    marbles: [Option<Marble>; 4]
+}
+impl Slots {
+    fn new() -> Slots {
+        Slots {
+            marbles: [None; 4]
+        }
+    }
+}
+impl Index<usize> for Slots {
+    type Output = Option<Marble>;
+    fn index(&self, idx: usize) -> &Self::Output {
+        &self.marbles[idx]
+    }
+}
+impl IndexMut<usize> for Slots {
+    fn index_mut(&mut self, idx: usize) -> &mut Self::Output {
+        &mut self.marbles[idx]
+    }
+}
+
 pub struct Cell {
     coord: Point,
     owner: Option<Owner>,
@@ -75,7 +100,7 @@ pub struct Cell {
     count: u8,
     has_neighbor: [bool; 4],
     // Residing, Incoming and Outgoing for each direction
-    slots: [[Option<Marble>; 4]; 3],
+    slots: [Slots; 3],
 }
 impl Cell {
     fn new(coord: Point) -> Cell {
@@ -89,30 +114,34 @@ impl Cell {
             coord: coord,
             owner: None,
             has_neighbor: has_neighbor,
-            slots: [[None; 4]; 3],
+            slots: arr![Slots::new(); 3],
             neighbors: has_neighbor.into_iter().map(|x| x as u8).sum(),
             count: 0,
         }
     }
 
     pub fn has_neighbor(&self, direction: usize) -> bool { self.has_neighbor[direction] }
-    fn residing(&self) -> &[Option<Marble>; 4] { &self.slots[0] }
-    fn incoming(&self) -> &[Option<Marble>; 4] { &self.slots[1] }
-    fn outgoing(&self) -> &[Option<Marble>; 4] { &self.slots[2] }
-    fn residing_mut(&mut self) -> &mut [Option<Marble>; 4] { &mut self.slots[0] }
-    fn incoming_mut(&mut self) -> &mut [Option<Marble>; 4] { &mut self.slots[1] }
-    fn outgoing_mut(&mut self) -> &mut [Option<Marble>; 4] { &mut self.slots[2] }
+    fn residing(&self) -> &Slots { &self.slots[0] }
+    fn incoming(&self) -> &Slots { &self.slots[1] }
+    fn outgoing(&self) -> &Slots { &self.slots[2] }
+    fn residing_mut(&mut self) -> &mut Slots { &mut self.slots[0] }
+    fn incoming_mut(&mut self) -> &mut Slots { &mut self.slots[1] }
+    fn outgoing_mut(&mut self) -> &mut Slots { &mut self.slots[2] }
 
     fn full(&self) -> bool {
         self.count == self.neighbors
     }
 
     pub fn marbles(&self) -> impl Iterator<Item=&Marble> + '_ {
-        self.slots.iter().flatten().flatten()
+        self.slots.iter().map(
+            |slots: &Slots| slots.marbles.iter().flatten()
+        ).flatten()
     }
 
     fn marbles_mut(&mut self) -> impl Iterator<Item=&mut Marble> + '_ {
-        self.slots.iter_mut().flatten().flatten()
+        self.slots.iter_mut().map(
+            |slots: &mut Slots| slots.marbles.iter_mut().flatten()
+        ).flatten()
     }
 
     /* Add a marble to a cell that has room for it (in first slot)
@@ -152,31 +181,63 @@ impl Cell {
 
     /* Remove and return one marble from each direction that is to be sent */
     fn send(&mut self) -> [Option<Marble>; 4] {
-        self.outgoing_mut().map(|mut x| x.take())
+        let mut result = [None; 4];
+        for idx in 0..4 {
+            result[idx] = self.outgoing_mut()[idx].take();
+            if result[idx].is_some() {
+                self.count -= 1;
+            }
+        }
+        if self.count == 0 {
+            self.owner = None;
+        }
+        result
     }
 
     /* Receive one marble from a neighbor */
     fn receive(&mut self, direction: usize, marble: Marble) {
         self.owner = Some(marble.owner);
         self.incoming_mut()[direction] = Some(marble);
+        self.count += 1;
     }
 
     /* This is called after all full cells have send() all marbles that are to be sent and their
      * neigbors receive()d them. The Outgoing slots are therefore empty and the Incoming slots
      * might be partially full.
-     * Move all marbles from Incoming slots into Outgoing or Remaining slot, possibly changing the
+     * Move all marbles from Incoming slot into Outgoing or Remaining slot, possibly changing the
      * direction to make the directions balanced.
      */
     fn sort_received(&mut self) {
-        let received: u8 = self.incoming().iter().flatten().map(|_| 1).sum();
-        if received == 0 {
+        let mut received = false;
+        for _ in self.incoming().marbles {
+            received = true;
+        }
+        if !received {
             return;
         }
-        self.count += received;
         if self.full() {
             // Collect outgoing marbles, from incoming or residing
+            for direction in 0..4 {
+                self.outgoing_mut()[direction] = self.incoming_mut()[direction].take();
+            }
+            for rotation in [0, 1, 3, 2] {
+                for direction in 0..4 {
+                    if !self.has_neighbor[direction] || self.outgoing()[direction].is_some() {
+                        continue
+                    };
+                    self.outgoing_mut()[direction] = self.residing_mut()[(direction+rotation)%4].take();
+                }
+            }
         } else {
             // Sort incoming marbles into residing
+            for rotation in [0, 1, 3, 2] {
+                for direction in 0..4 {
+                    if !self.has_neighbor[direction] || self.residing()[direction].is_some() {
+                        continue
+                    };
+                    self.residing_mut()[direction] = self.incoming_mut()[(direction+rotation)%4].take();
+                }
+            }
         }
     }
 
@@ -185,7 +246,7 @@ impl Cell {
         for direction in 0..4 {
             let target = center + 25*DIRECTIONS[direction];
             for slot in 0..3 {
-                if let Some(mut marble) = self.slots[slot][direction] {
+                if let Some(marble) = self.slots[slot][direction].as_mut() {
                     marble.step(target, steps);
                 }
             }
@@ -309,6 +370,21 @@ impl Grid {
                 } else {
                     State::Animating(steps-1)
                 }
+            }
+        }
+    }
+
+    // Check which players are no longer alive
+    pub fn check_players(&self, players: &mut [Player; 3]) {
+        for player in players.as_mut() {
+            if player.started {
+                player.alive = false;
+            }
+        }
+        for cell in self.cells.iter() {
+            if let Some(owner) = cell.owner {
+                players[owner].started = true;
+                players[owner].alive = true;
             }
         }
     }

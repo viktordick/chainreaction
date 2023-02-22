@@ -7,8 +7,8 @@ use crate::grid::{Owner, Point, Grid, DIM};
  * they then at some point have no more marbles, they have lost and are no longer alive.
  */
 pub struct Player {
-    started: bool,
-    alive: bool,
+    pub started: bool,
+    pub alive: bool,
     color: Color,
 }
 impl Player {
@@ -19,7 +19,6 @@ impl Player {
             color: Color::RGB(red, green, blue),
         }
     }
-    pub fn alive(&self) -> bool { self.alive }
     pub fn color(&self) -> Color { self.color }
 }
 
@@ -98,6 +97,7 @@ impl Game {
             State::AcceptingInput => (),
             _ => {
                 self.state = self.grid.step(self.state);
+                self.grid.check_players(&mut self.players);
                 self.next_player_if_accepting();
             }
         }
@@ -106,7 +106,12 @@ impl Game {
     fn next_player_if_accepting(&mut self) {
         match self.state {
             State::AcceptingInput => {
-                self.cur_player = (self.cur_player + 1) % self.players.len();
+                loop {
+                    self.cur_player = (self.cur_player + 1) % self.players.len();
+                    if self.players[self.cur_player].alive {
+                        break;
+                    }
+                }
             },
             _ => ()
         };
