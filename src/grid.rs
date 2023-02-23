@@ -129,7 +129,7 @@ impl Cell {
     fn outgoing_mut(&mut self) -> &mut Slots { &mut self.slots[2] }
 
     fn full(&self) -> bool {
-        self.count == self.neighbors
+        self.count >= self.neighbors
     }
 
     pub fn marbles(&self) -> impl Iterator<Item=&Marble> + '_ {
