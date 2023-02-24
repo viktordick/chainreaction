@@ -375,8 +375,8 @@ impl Grid {
     }
 
     // Check which players are no longer alive
-    pub fn check_players(&self, players: &mut [Player; 3]) {
-        for player in players.as_mut() {
+    pub fn check_players(&self, players: &mut Vec<Player>) {
+        for player in players.iter_mut() {
             if player.started {
                 player.alive = false;
             }

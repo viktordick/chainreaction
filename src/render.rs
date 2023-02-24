@@ -1,5 +1,10 @@
 use std::str;
+use std::time::Duration;
 
+use sdl2::EventPump;
+use sdl2::VideoSubsystem;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 use sdl2::video::{Window,WindowContext};
 use sdl2::render::{Canvas,Texture,TextureCreator};
 use sdl2::surface::Surface;
@@ -8,8 +13,36 @@ use sdl2::pixels::{Color,PixelFormatEnum};
 use sdl2::gfx::primitives::DrawRenderer;
 use sdl2::ttf;
 
-use crate::grid::{DIMX, DIMY, Point, PointIter, DIRECTIONS};
+use crate::grid::{DIM, DIMX, DIMY, Point, PointIter, DIRECTIONS};
 use crate::game::Game;
+
+// Create a canvas, allow the given CanvasDrawer function to fill it, and convert to a texture.
+pub fn create_texture<'a, CanvasDrawer>(
+    creator: &'a TextureCreator<WindowContext>,
+    width: u32,
+    height: u32,
+    draw: CanvasDrawer
+) -> Result<Texture, String>
+where CanvasDrawer: Fn(&mut Canvas<Surface>) -> Result<(), String>
+{
+    let mut canvas = Surface::new(width, height, PixelFormatEnum::RGBA8888)
+        ?.into_canvas()?;
+    draw(&mut canvas)?;
+    Ok(creator
+        .create_texture_from_surface(canvas.into_surface())
+        .map_err(|e| e.to_string())?)
+}
+
+pub fn gradient(canvas: &Canvas<Surface>, cx: i16, cy: i16, color: Color) -> Result<(), String> {
+    for i in 0..31 {
+        let mut color = color;
+        color.a = (256 - (((31-i) as u32 * 140)/32) as u16) as u8;
+        let halflength = ((15*15-(i-15)*(i-15)) as f64).sqrt() as i16;
+        canvas.hline(cx-halflength, cx+halflength, cy-15+i, Color::RGB(200, 200, 200))?;
+        canvas.hline(cx-halflength, cx+halflength, cy-15+i, color)?;
+    }
+    Ok(())
+}
 
 // Rendering helper. This pre-renders all required textures and copies them to the board
 // accordingly.
@@ -21,33 +54,6 @@ pub struct Renderer<'a> {
     selected: Texture<'a>,
 }
 impl<'a> Renderer<'a> {
-    // Create a canvas, allow the given CanvasDrawer function to fill it, and convert to a texture.
-    fn _create_texture<CanvasDrawer>(
-        creator: &'a TextureCreator<WindowContext>,
-        width: u32,
-        height: u32,
-        draw: CanvasDrawer
-    ) -> Result<Texture, String>
-        where CanvasDrawer: Fn(&mut Canvas<Surface>) -> Result<(), String>
-    {
-        let mut canvas = Surface::new(width, height, PixelFormatEnum::RGBA8888)
-            ?.into_canvas()?;
-        draw(&mut canvas)?;
-        Ok(creator
-            .create_texture_from_surface(canvas.into_surface())
-            .map_err(|e| e.to_string())?)
-    }
-
-    fn gradient(canvas: &Canvas<Surface>, cx: i16, cy: i16, color: Color) -> Result<(), String> {
-        for i in 0..31 {
-            let mut color = color;
-            color.a = (256 - (((31-i) as u32 * 140)/32) as u16) as u8;
-            let halflength = ((15*15-(i-15)*(i-15)) as f64).sqrt() as i16;
-            canvas.hline(cx-halflength, cx+halflength, cy-15+i, Color::RGB(200, 200, 200))?;
-            canvas.hline(cx-halflength, cx+halflength, cy-15+i, color)?;
-        }
-        Ok(())
-    }
 
     fn add_coords(background: &mut Canvas<Surface>) -> Result<(), String> {
         let fontcontext = ttf::init().map_err(|e| e.to_string())?;
@@ -92,15 +98,15 @@ impl<'a> Renderer<'a> {
         let mut marbles = Vec::with_capacity(game.num_players());
         for player in game.players() {
             marbles.push(
-                Renderer::_create_texture(creator, 31, 31, |canvas| {
-                    Renderer::gradient(&canvas, 15, 15, player.color())?;
+                create_texture(creator, 31, 31, |canvas| {
+                    gradient(&canvas, 15, 15, player.color())?;
                     Ok(())
                 })?
             );
         }
 
         Ok(Renderer{
-            background: Renderer::_create_texture(
+            background: create_texture(
                 creator, 100*DIMX as u32 + 100, 100*DIMY as u32,
                 |mut canvas| {
                     canvas.set_draw_color(Color::RGB(200, 200, 200));
@@ -122,33 +128,33 @@ impl<'a> Renderer<'a> {
                             let pos = center + 25*DIRECTIONS[direction];
                             let cx = pos.re as i16;
                             let cy = pos.im as i16;
-                            Renderer::gradient(&canvas, cx, cy, Color::RGB(255, 255, 255))?;
+                            gradient(&canvas, cx, cy, Color::RGB(255, 255, 255))?;
                         }
                     }
 
                     for (idx, player) in game.players().enumerate() {
                         let x = (DIMX * 100 + 50) as i16;
                         let y = (30 + idx * 40) as i16;
-                        Renderer::gradient(&canvas, x, y, player.color())?;
+                        gradient(&canvas, x, y, player.color())?;
                     }
                     Ok(())
                 },
             )?,
             marbles: marbles,
-            active_marker: Renderer::_create_texture(
+            active_marker: create_texture(
                 creator, 31, 31, |canvas| {
                     canvas.filled_pie(25, 15, 20, 160, 200, black)?;
                     Ok(())
                 },
             )?,
-            dead_marker: Renderer::_create_texture(
+            dead_marker: create_texture(
                 creator, 31, 31, |canvas| {
                     canvas.thick_line(0, 0, 30, 30, 3, black)?;
                     canvas.thick_line(0, 30, 30, 0, 3, black)?;
                     Ok(())
                 },
             )?,
-            selected: Renderer::_create_texture(
+            selected: create_texture(
                 creator, 100, 100, |canvas| {
                     canvas.thick_line(1, 1, 100, 1, 2, black)?;
                     canvas.thick_line(1, 1, 1, 100, 2, black)?;
@@ -198,4 +204,47 @@ impl<'a> Renderer<'a> {
 
         Ok(())
     }
+}
+
+pub fn run_game(video: &VideoSubsystem, event_pump: &mut EventPump, game: &mut Game) -> Result<(), String> {
+    let mut canvas = video
+        .window("Chain reaction", 100*DIMX as u32 + 100, 100*DIMY as u32)
+        .position_centered()
+        .build()
+        .map_err(|e| e.to_string())?
+        .into_canvas()
+        .present_vsync()
+        .accelerated()
+        .build()
+        .map_err(|e| e.to_string())?;
+
+    let texture_creator = canvas.texture_creator();
+    let renderer = Renderer::new(&texture_creator, &game)?;
+
+    'running: loop {
+        canvas.set_draw_color(Color::RGB(90, 90, 90));
+        canvas.clear();
+        for event in event_pump.poll_iter() {
+            match event {
+                Event::Quit {..} |
+                Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                    break 'running
+                },
+                Event::KeyDown { keycode, .. } => game.keydown(keycode.unwrap()),
+                Event::MouseButtonDown {x, y, .. } => {
+                    let x = x/100;
+                    let y = y/100;
+                    if x < DIM.re && y < DIM.im {
+                        game.click(Point::new(x, y));
+                    }
+                },
+                _ => {}
+            }
+        }
+        game.step();
+        renderer.update(&mut canvas, &game)?;
+        canvas.present();
+        std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
+    };
+    Ok(())
 }

@@ -1,3 +1,5 @@
+use std::vec::Vec;
+
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 
@@ -12,11 +14,11 @@ pub struct Player {
     color: Color,
 }
 impl Player {
-    fn new(red: u8, green: u8, blue: u8) -> Player {
+    pub fn new(color: Color) -> Player {
         Player{
             started: false,
             alive: true,
-            color: Color::RGB(red, green, blue),
+            color: color,
         }
     }
     pub fn color(&self) -> Color { self.color }
@@ -29,7 +31,7 @@ pub enum State {
 }
 
 pub struct Game {
-    players: [Player; 3],
+    players: Vec<Player>,
     state: State,
     cur_player: Owner,
     selected: Point,
@@ -43,13 +45,9 @@ impl Game {
     pub fn grid(&self) -> &Grid { &self.grid }
     pub fn selected(&self) -> Point { self.selected }
 
-    pub fn new() -> Game {
+    pub fn new(players: Vec<Player>) -> Game {
         Game {
-            players: [
-                Player::new(200, 0, 0),
-                Player::new(0, 150, 0),
-                Player::new(0, 0, 200),
-            ],
+            players: players,
             cur_player: 0,
             state: State::AcceptingInput,
             grid: Grid::new(),
