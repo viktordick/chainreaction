@@ -1,4 +1,3 @@
-use std::cmp::min;
 use std::vec::Vec;
 use std::time::Duration;
 
@@ -15,7 +14,12 @@ use crate::render::{create_texture, gradient};
 
 fn color(x: u8, y: u8) -> Color {
     // Map a 256x256 square onto a color
-    Color::RGB(min(x,y), min(x,255-y), min(255-x, y))
+    let sum = x as i16 + y as i16 - 256;
+    Color::RGB(
+        if x > 128 { 0 } else { 128 - y },
+        if x > 128 { 0 } else { 128 - x },
+        if sum < 0 { 0 } else { sum as u8 },
+    )
 }
 
 pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<Vec<Player>, String> {
