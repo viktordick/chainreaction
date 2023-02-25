@@ -16,7 +16,7 @@ fn color(x: u8, y: u8) -> Color {
     // Map a 256x256 square onto a color
     let sum = x as i16 + y as i16 - 256;
     Color::RGB(
-        if x > 128 { 0 } else { 128 - y },
+        if y > 128 { 0 } else { 128 - y },
         if x > 128 { 0 } else { 128 - x },
         if sum < 0 { 0 } else { sum as u8 },
     )
