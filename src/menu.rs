@@ -13,13 +13,33 @@ use crate::game::Player;
 use crate::render::{create_texture, gradient};
 
 fn color(x: u8, y: u8) -> Color {
-    // Map a 256x256 square onto a color
-    let sum = x as i16 + y as i16 - 256;
-    Color::RGB(
-        if y > 128 { 0 } else { 128 - y },
-        if x > 128 { 0 } else { 128 - x },
-        if sum < 0 { 0 } else { sum as u8 },
-    )
+    // Map a 256x256 square onto a color, separating into six segments with the primary and
+    // secondary colors at the edges and black in the center:
+    // r - rg - g
+    // |        |
+    // rb - b - gb
+    if x < 128 {
+        if y <= x {
+            Color::RGB(255-2*y, 2*(x-y), 0)
+        }
+        else if y >= 255 - x {
+            Color::RGB(255-2*x, 0, 2*(y-128))
+        }
+        else {
+            Color::RGB(255-2*x, 0, y-x)
+        }
+    }
+    else {
+        if y <= 255 - x {
+            Color::RGB(2*(255-x-y), 255-2*y, 0)
+        }
+        else if y >= x {
+            Color::RGB(0, 2*(x-128), 2*(y-128))
+        }
+        else {
+            Color::RGB(0, 2*(x-128), y-(255-x))
+        }
+    }
 }
 
 pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<Vec<Player>, String> {
