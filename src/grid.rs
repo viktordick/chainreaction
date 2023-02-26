@@ -9,10 +9,6 @@ use crate::game::{State, Player};
 pub type Point = complex::Complex<i32>;
 pub type Owner = usize;
 
-pub const DIMX: usize = 8;
-pub const DIMY: usize = 6;
-pub const DIM: Point = Point::new(DIMX as i32, DIMY as i32);
-
 // main directions
 pub const DIRECTIONS: [Point; 4] = [
     Point::new(1, 0),
@@ -22,12 +18,14 @@ pub const DIRECTIONS: [Point; 4] = [
 ];
 
 pub struct PointIter {
+    dim: Point,
     p: Point,
 }
 impl PointIter {
-    pub fn new() -> PointIter {
+    pub fn new(dim: Point) -> PointIter {
         PointIter {
-            p: Point::new(DIM.re-1, DIM.im),
+            dim: dim,
+            p: Point::new(dim.re-1, dim.im),
         }
     }
 }
@@ -39,7 +37,7 @@ impl Iterator for PointIter {
             Some(self.p)
         } else {
             self.p.re -= 1;
-            self.p.im = DIM.im - 1;
+            self.p.im = self.dim.im - 1;
             if self.p.re >= 0 {
                 Some(self.p)
             } else {
@@ -103,10 +101,10 @@ pub struct Cell {
     slots: [Slots; 3],
 }
 impl Cell {
-    fn new(coord: Point) -> Cell {
+    fn new(coord: Point, dim: Point) -> Cell {
         let has_neighbor = [
-            coord.re < DIM.re - 1,
-            coord.im < DIM.im - 1,
+            coord.re < dim.re - 1,
+            coord.im < dim.im - 1,
             coord.re > 0,
             coord.im > 0,
         ];
@@ -255,36 +253,35 @@ impl Cell {
 }
 
 pub struct Grid {
-    cells: [Cell; DIMX*DIMY],
+    dim: Point,
+    cells: Vec<Cell>,
 }
 impl Grid {
-    pub fn new() -> Grid {
-        /* Initialize Grid (on the stack!) */
-        let mut x: i32 = 0;
-        let mut y: i32 = 0;
+    pub fn new(dim: Point) -> Grid {
+        let mut cells: Vec<Cell> = Vec::with_capacity(dim.re as usize * dim.im as usize);
+        for x in 0..dim.re {
+            for y in 0..dim.im {
+                cells.push(Cell::new(Point::new(x as i32, y as i32), dim));
+            }
+        }
         Grid {
-            cells: arr![Cell::new({
-                let coord = Point::new(x, y);
-                y += 1;
-                if y == DIM.im {
-                    y = 0;
-                    x += 1;
-                }
-                coord
-            }); 48],  // NOTE: This is DIMX*DIMY, but unfortunately we need a literal here
+            dim: dim,
+            cells: cells,
         }
     }
+    pub fn dim(&self) -> Point { self.dim }
     
-    fn idx(p: Point) -> usize {
-        p.re as usize * DIMY + p.im as usize
+    fn idx(&self, p: Point) -> usize {
+        (p.re * self.dim.im + p.im) as usize
     }
 
     pub fn cell(&self, p: Point) -> &Cell {
-        &self.cells[Self::idx(p)]
+        &self.cells[self.idx(p)]
     }
 
     pub fn cell_mut(&mut self, p: Point) -> &mut Cell {
-        &mut self.cells[Self::idx(p)]
+        let idx = self.idx(p);
+        &mut self.cells[idx]
     }
 
     /* After a adding a marble that fills the field or at the end of an animation, this is called
@@ -308,7 +305,7 @@ impl Grid {
         }
         // Spread out
         let mut any_moved = false;
-        for coord in PointIter::new() {
+        for coord in PointIter::new(self.dim) {
             if !self.cell(coord).full() {
                 continue
             }

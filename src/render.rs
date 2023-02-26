@@ -13,7 +13,7 @@ use sdl2::pixels::{Color,PixelFormatEnum};
 use sdl2::gfx::primitives::DrawRenderer;
 use sdl2::ttf;
 
-use crate::grid::{DIM, DIMX, DIMY, Point, PointIter, DIRECTIONS};
+use crate::grid::{Point, PointIter, DIRECTIONS};
 use crate::game::Game;
 
 // Create a canvas, allow the given CanvasDrawer function to fill it, and convert to a texture.
@@ -47,6 +47,7 @@ pub fn gradient(canvas: &Canvas<Surface>, cx: i16, cy: i16, color: Color) -> Res
 // Rendering helper. This pre-renders all required textures and copies them to the board
 // accordingly.
 pub struct Renderer<'a> {
+    dim: Point,
     background: Texture<'a>,
     marbles: Vec<Texture<'a>>,
     active_marker: Texture<'a>,
@@ -55,7 +56,7 @@ pub struct Renderer<'a> {
 }
 impl<'a> Renderer<'a> {
 
-    fn add_coords(background: &mut Canvas<Surface>) -> Result<(), String> {
+    fn add_coords(background: &mut Canvas<Surface>, dim: Point) -> Result<(), String> {
         let fontcontext = ttf::init().map_err(|e| e.to_string())?;
         let font = fontcontext.load_font("/usr/share/fonts/liberation/LiberationMono-Regular.ttf", 24)?;
         let creator = background.texture_creator();
@@ -80,10 +81,10 @@ impl<'a> Renderer<'a> {
             )?;
             Ok(())
         };
-        for i in 0..DIMX {
+        for i in 0..dim.re {
             render(65+i as u8, 100*i as i32 + 50, 20)?;
         };
-        for i in 0..DIMY {
+        for i in 0..dim.im{
             render(49+i as u8, 15, 100*i as i32+50)?;
         }
         Ok(())
@@ -105,20 +106,23 @@ impl<'a> Renderer<'a> {
             );
         }
 
+        let dim = game.dim();
+
         Ok(Renderer{
+            dim: dim,
             background: create_texture(
-                creator, 100*DIMX as u32 + 100, 100*DIMY as u32,
+                creator, 100*dim.re as u32 + 100, 100*dim.im as u32,
                 |mut canvas| {
                     canvas.set_draw_color(Color::RGB(200, 200, 200));
                     canvas.clear();
-                    Renderer::add_coords(&mut canvas)?;
-                    for x in 0..DIMX + 1 {
-                        canvas.vline((x*100) as i16, 0, 100*DIMY as i16, black)?;
+                    Renderer::add_coords(&mut canvas, dim)?;
+                    for x in 0..=dim.re {
+                        canvas.vline((x*100) as i16, 0, 100*dim.im as i16, black)?;
                     }
-                    for y in 0..DIMY {
-                        canvas.hline(0, (100*DIMX) as i16, (y*100) as i16, black)?;
+                    for y in 0..dim.im {
+                        canvas.hline(0, (100*dim.re) as i16, (y*100) as i16, black)?;
                     }
-                    for coord in PointIter::new() {
+                    for coord in PointIter::new(dim) {
                         let cell = game.grid().cell(coord);
                         let center = coord*100 + Point::new(50, 50);
                         for direction in 0..4 {
@@ -133,7 +137,7 @@ impl<'a> Renderer<'a> {
                     }
 
                     for (idx, player) in game.players().enumerate() {
-                        let x = (DIMX * 100 + 50) as i16;
+                        let x = (dim.re * 100 + 50) as i16;
                         let y = (30 + idx * 40) as i16;
                         gradient(&canvas, x, y, player.color())?;
                     }
@@ -177,7 +181,7 @@ impl<'a> Renderer<'a> {
                 Some(rect),
             )?
         }
-        let rect = Rect::new(DIMX as i32*100 + 5, game.cur_player() as i32*40 + 15, 30, 31);
+        let rect = Rect::new(self.dim.re as i32*100 + 5, game.cur_player() as i32*40 + 15, 30, 31);
         canvas.copy(
             &self.active_marker,
             None,
@@ -187,7 +191,7 @@ impl<'a> Renderer<'a> {
             if player.alive {
                 continue
             }
-            let rect = Rect::new(DIMX as i32*100+35, 15+idx as i32*40, 31, 31);
+            let rect = Rect::new(self.dim.re as i32*100+35, 15+idx as i32*40, 31, 31);
             canvas.copy(
                 &self.dead_marker,
                 None,
@@ -207,8 +211,9 @@ impl<'a> Renderer<'a> {
 }
 
 pub fn run_game(video: &VideoSubsystem, event_pump: &mut EventPump, game: &mut Game) -> Result<(), String> {
+    let dim = game.dim();
     let mut canvas = video
-        .window("Chain reaction", 100*DIMX as u32 + 100, 100*DIMY as u32)
+        .window("Chain reaction", 100*dim.re as u32 + 100, 100*dim.im as u32)
         .position_centered()
         .build()
         .map_err(|e| e.to_string())?
@@ -234,7 +239,7 @@ pub fn run_game(video: &VideoSubsystem, event_pump: &mut EventPump, game: &mut G
                 Event::MouseButtonDown {x, y, .. } => {
                     let x = x/100;
                     let y = y/100;
-                    if x < DIM.re && y < DIM.im {
+                    if x < dim.re && y < dim.im {
                         game.click(Point::new(x, y));
                     }
                 },

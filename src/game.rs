@@ -3,7 +3,8 @@ use std::vec::Vec;
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 
-use crate::grid::{Owner, Point, Grid, DIM};
+use crate::grid::{Owner, Point, Grid};
+use crate::menu::Config;
 
 /* Color and state for each player. Once the player places their first marble, they are started. If
  * they then at some point have no more marbles, they have lost and are no longer alive.
@@ -44,27 +45,29 @@ impl Game {
     pub fn cur_player(&self) -> Owner { self.cur_player }
     pub fn grid(&self) -> &Grid { &self.grid }
     pub fn selected(&self) -> Point { self.selected }
+    pub fn dim(&self) -> Point { self.grid.dim() }
 
-    pub fn new(players: Vec<Player>) -> Game {
+    pub fn new(config: Config) -> Game {
         Game {
-            players: players,
+            players: config.players,
             cur_player: 0,
             state: State::AcceptingInput,
-            grid: Grid::new(),
+            grid: Grid::new(config.size),
             selected: Point::new(0, 0),
         }
     }
 
     pub fn keydown(&mut self, keycode: Keycode) {
+        let dim = self.grid.dim();
         match keycode {
             Keycode::Right =>
-                self.selected.re = (self.selected.re + 1) % DIM.re,
+                self.selected.re = (self.selected.re + 1) % dim.re,
             Keycode::Left =>
-                self.selected.re = (self.selected.re + DIM.re - 1) % DIM.re,
+                self.selected.re = (self.selected.re + dim.re - 1) % dim.re,
             Keycode::Down =>
-                self.selected.im = (self.selected.im + 1) % DIM.im,
+                self.selected.im = (self.selected.im + 1) % dim.im,
             Keycode::Up =>
-                self.selected.im = (self.selected.im + DIM.im - 1) % DIM.im,
+                self.selected.im = (self.selected.im + dim.im - 1) % dim.im,
             Keycode::Return => {
                 self.click(self.selected);
             }
