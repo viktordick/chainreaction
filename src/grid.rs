@@ -1,12 +1,12 @@
 use std::ops::{Index,IndexMut};
 
-use num::complex;
+use num_complex::Complex;
 
-use arr_macro::arr;
+use array_macro::array;
 
 use crate::game::{State, Player};
 
-pub type Point = complex::Complex<i32>;
+pub type Point = Complex<i32>;
 pub type Owner = usize;
 
 // main directions
@@ -112,7 +112,7 @@ impl Cell {
             coord: coord,
             owner: None,
             has_neighbor: has_neighbor,
-            slots: arr![Slots::new(); 3],
+            slots: array![_ => Slots::new(); 3],
             neighbors: has_neighbor.into_iter().map(|x| x as u8).sum(),
             count: 0,
         }
