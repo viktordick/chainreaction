@@ -214,6 +214,7 @@ pub fn run_game(video: &VideoSubsystem, event_pump: &mut EventPump, game: &mut G
     let dim = game.dim();
     let mut canvas = video
         .window("Chain reaction", 100*dim.re as u32 + 100, 100*dim.im as u32)
+        .resizable()
         .position_centered()
         .build()
         .map_err(|e| e.to_string())?
@@ -222,6 +223,7 @@ pub fn run_game(video: &VideoSubsystem, event_pump: &mut EventPump, game: &mut G
         .accelerated()
         .build()
         .map_err(|e| e.to_string())?;
+    canvas.set_logical_size(100*dim.re as u32 + 100, 100*dim.im as u32).map_err(|e| e.to_string())?;
 
     let texture_creator = canvas.texture_creator();
     let renderer = Renderer::new(&texture_creator, &game)?;

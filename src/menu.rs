@@ -52,6 +52,7 @@ pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<C
     let mut canvas = video
         .window("Chain reaction", 1024, 512)
         .position_centered()
+        .resizable()
         .build()
         .map_err(|e| e.to_string())?
         .into_canvas()
