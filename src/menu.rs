@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use sdl2::EventPump;
 use sdl2::VideoSubsystem;
-use sdl2::event::Event;
+use sdl2::event::{Event,WindowEvent};
 use sdl2::keyboard::Keycode;
 use sdl2::pixels::Color;
 use sdl2::rect::Rect;
@@ -51,9 +51,9 @@ pub struct Config {
 
 pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<Config, String> {
     let mut canvas = video
-        .window("Chain reaction", 1024, 512)
-        .position_centered()
-        .resizable()
+        .window("Chain reaction", 0, 0)
+        .fullscreen_desktop()
+        .allow_highdpi()
         .build()
         .map_err(|e| e.to_string())?
         .into_canvas()
@@ -72,38 +72,57 @@ pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<C
         Ok(())
     })?;
 
+    // In case of fractional scaling, this describes the "virtual" size in pixels, i.e. mouse
+    // events are relative to this.
+    let mut window_size = (0, 0);
     let mut players = Vec::new();
     let mut size = Point::new(8, 6);
     let mut marbles = Vec::new();
-    let mut mousepos = (256,256);
-    let mut next_color: Color = Color::RGB(0,0,0);
+    let mut mousepos = (0u32, 0u32);
+    let mut next_color: Option<Color> = None;
     'running: loop {
+        // Actual number of pixels
+        let output_size = canvas.output_size()?;
         for event in event_pump.poll_iter() {
             match event {
-                Event::Quit {..}
-                | Event::KeyDown { keycode: Some(Keycode::Escape | Keycode::Return), .. }
-                => {
+                Event::KeyDown { keycode: Some(Keycode::Escape | Keycode::Return), .. }
+                | Event::Quit {..} => {
                     break 'running
                 },
+                Event::Window { win_event: WindowEvent::Resized(w, h), .. } => {
+                    window_size = (w, h);
+                },
                 Event::MouseMotion {x, y, ..} => {
-                    mousepos = (x as i16, y as i16);
-                    let p: (Result<u8, _>, Result<u8, _>) = ((x/2).try_into(), (y/2).try_into());
-                    if let (Ok(x), Ok(y)) = p {
-                        next_color = color(x, y);
+                    if window_size.0 > 0 {
+                        mousepos = (
+                            (x as f32 / window_size.0 as f32 * output_size.0 as f32) as u32,
+                            (y as f32 / window_size.1 as f32 * output_size.1 as f32) as u32,
+                        );
+                        let offset = (output_size.1 as u32-512)/2;
+                        if mousepos.0 >= 50 && mousepos.0 < 562
+                            && mousepos.1 >= offset && mousepos.1 < offset + 512 {
+                            next_color = Some(color(
+                                ((mousepos.0-50)/2) as u8,
+                                ((mousepos.1-offset)/2) as u8,
+                            ));
+                        } else {
+                            next_color = None;
+                        }
                     }
                 },
-                Event::MouseButtonDown {.. } => {
-                    if mousepos.0 < 512 {
-                        players.push(Player::new(next_color));
+                Event::MouseButtonDown { .. } => {
+                    if let Some(col) = next_color {
+                        players.push(Player::new(col));
                         marbles.push(
-                            create_texture(&creator, 31, 31, |canvas| {
-                                gradient(&canvas, 15, 15, 15, next_color)?;
+                            create_texture(&creator, 61, 61, |canvas| {
+                                gradient(&canvas, 30, 30, 30, col)?;
                                 Ok(())
                             })?
                         );
-                    } else if mousepos.0 > 525 && mousepos.1 > 55 {
-                        size.re = ((mousepos.0 - 525)/30) as i32;
-                        size.im = ((mousepos.1 - 55)/30) as i32;
+                    }
+                    if mousepos.0 > 600 && mousepos.1 > 320 {
+                        size.re = ((mousepos.0 - 600)/50) as i32;
+                        size.im = ((mousepos.1 - 320)/50) as i32;
                         if size.re > 9 {
                             size.re = 9;
                         }
@@ -121,19 +140,24 @@ pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<C
         }
         canvas.set_draw_color(Color::RGB(200, 200, 200));
         canvas.clear();
-        canvas.copy(&texture_bg, None, Some(Rect::new(0,0,512,512)))?;
-        if mousepos.0 < 512 {
-            canvas.filled_circle(mousepos.0, mousepos.1, 20, next_color)?;
+        if output_size.0 > 600 && output_size.1 > 600 {
+            canvas.copy(
+                &texture_bg, None,
+                Some(Rect::new(50, (output_size.1 as i32-512)/2,512,512))
+            )?;
+        }
+        if let Some(col) = next_color {
+            canvas.filled_circle(mousepos.0 as i16, mousepos.1 as i16, 20, col)?;
         };
         for (i, marble) in marbles.iter().enumerate() {
-            canvas.copy(&marble, None, Some(Rect::new(512+15 + i as i32 * 40, 15, 31, 31)))?;
+            canvas.copy(&marble, None, Some(Rect::new(600 + i as i32 * 70, 50, 61, 61)))?;
         }
         let black = Color::RGB(0, 0, 0);
         for x in 0..=size.re as i16 {
-            canvas.vline(525+30*x, 55, 55+30*size.im as i16, black)?;
+            canvas.vline(600+50*x, 320, 320+50*size.im as i16, black)?;
         }
         for y in 0..=size.im as i16 {
-            canvas.hline(525, 525+30*size.re as i16, 55+30*y, black)?;
+            canvas.hline(600, 600+50*size.re as i16, 320+50*y, black)?;
         }
         canvas.present();
         std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));

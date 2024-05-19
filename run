@@ -1,0 +1,3 @@
+#!/bin/fish
+set -lx SDL_VIDEODRIVER wayland
+cargo run --release

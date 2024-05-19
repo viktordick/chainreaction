@@ -225,7 +225,6 @@ pub fn run_game(video: &VideoSubsystem, event_pump: &mut EventPump, game: &mut G
     let cellsize = game.cellsize() as u32;
     let mut canvas = video
         .window("Chain reaction", cellsize*(dim.re+1) as u32, cellsize*dim.im as u32)
-        .resizable()
         .position_centered()
         .build()
         .map_err(|e| e.to_string())?

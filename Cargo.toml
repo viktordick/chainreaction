@@ -14,8 +14,8 @@ version = "0.35.2"
 default-features = false
 features = ["gfx", "ttf"]
 
-[profile.release]
-opt-level = 'z'
-lto = true
-strip = "debuginfo"
-codegen-units = 1
+# [profile.release]
+# opt-level = 'z'
+# lto = true
+# strip = "debuginfo"
+# codegen-units = 1
