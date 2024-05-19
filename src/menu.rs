@@ -46,6 +46,7 @@ fn color(x: u8, y: u8) -> Color {
 pub struct Config {
     pub players: Vec<Player>,
     pub size: Point,
+    pub cellsize: i32,
 }
 
 pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<Config, String> {
@@ -96,13 +97,19 @@ pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<C
                         players.push(Player::new(next_color));
                         marbles.push(
                             create_texture(&creator, 31, 31, |canvas| {
-                                gradient(&canvas, 15, 15, next_color)?;
+                                gradient(&canvas, 15, 15, 15, next_color)?;
                                 Ok(())
                             })?
                         );
                     } else if mousepos.0 > 525 && mousepos.1 > 55 {
-                        size.re = ((mousepos.0 - 525)/10) as i32;
-                        size.im = ((mousepos.1 - 55)/10) as i32;
+                        size.re = ((mousepos.0 - 525)/30) as i32;
+                        size.im = ((mousepos.1 - 55)/30) as i32;
+                        if size.re > 9 {
+                            size.re = 9;
+                        }
+                        if size.im > 9 {
+                            size.im = 9;
+                        }
                     }
                 },
                 Event::KeyDown { keycode: Some(Keycode::Backspace), .. } => {
@@ -123,10 +130,10 @@ pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<C
         }
         let black = Color::RGB(0, 0, 0);
         for x in 0..=size.re as i16 {
-            canvas.vline(525+10*x, 55, 55+10*size.im as i16, black)?;
+            canvas.vline(525+30*x, 55, 55+30*size.im as i16, black)?;
         }
         for y in 0..=size.im as i16 {
-            canvas.hline(525, 525+10*size.re as i16, 55+10*y, black)?;
+            canvas.hline(525, 525+30*size.re as i16, 55+30*y, black)?;
         }
         canvas.present();
         std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
@@ -134,5 +141,6 @@ pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<C
     Ok(Config{
         players: players,
         size: size,
+        cellsize: 100,
     })
 }

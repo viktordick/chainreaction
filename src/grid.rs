@@ -145,7 +145,7 @@ impl Cell {
     /* Add a marble to a cell that has room for it (in first slot)
      * Returns Err variant if there is no room (should not happen) or if the owner does not match.
      */
-    fn add_marble(&mut self, owner: Owner) -> Result<(), ()>{
+    fn add_marble(&mut self, owner: Owner, cellsize: i32) -> Result<(), ()>{
         if *self.owner.get_or_insert(owner) != owner {
             // Set owner if it is not yet set, but return an error if it is set differently
             return Err(())
@@ -154,7 +154,7 @@ impl Cell {
             return Err(())
         }
         self.count += 1;
-        let center = self.coord * 100 + Point::new(50, 50);
+        let center = self.coord * cellsize + Point::new(cellsize/2, cellsize/2);
         for direction in 0..4 {
             if !self.has_neighbor[direction] || self.residing()[direction].is_some() {
                 continue;
@@ -162,7 +162,7 @@ impl Cell {
             self.residing_mut()[direction].get_or_insert_with(|| 
                 Marble {
                     owner: owner,
-                    pos: center + 25 * DIRECTIONS[direction],
+                    pos: center + cellsize/4 * DIRECTIONS[direction],
                 }
             );
             break
@@ -239,10 +239,10 @@ impl Cell {
         }
     }
 
-    fn step(&mut self, steps: i32) {
-        let center = self.coord * 100 + Point::new(50, 50);
+    fn step(&mut self, steps: i32, cellsize: i32) {
+        let center = self.coord * cellsize + Point::new(cellsize/2, cellsize/2);
         for direction in 0..4 {
-            let target = center + 25*DIRECTIONS[direction];
+            let target = center + cellsize/4 *DIRECTIONS[direction];
             for slot in 0..3 {
                 if let Some(marble) = self.slots[slot][direction].as_mut() {
                     marble.step(target, steps);
@@ -342,9 +342,9 @@ impl Grid {
      * Returns the Err variant if the cell belongs to someone else.
      * May be called in AcceptingInput state.
      */
-    pub fn add_marble(&mut self, coord: Point, owner: Owner) -> Result<State, ()> {
+    pub fn add_marble(&mut self, coord: Point, owner: Owner, cellsize: i32) -> Result<State, ()> {
         let cell = self.cell_mut(coord);
-        cell.add_marble(owner)?;
+        cell.add_marble(owner, cellsize)?;
         Ok(
             if cell.full() {
                 self.spread()
@@ -355,12 +355,12 @@ impl Grid {
     }
 
     /* Perform one animation step */
-    pub fn step(&mut self, state: State) -> State {
+    pub fn step(&mut self, state: State, cellsize: i32) -> State {
         match state {
             State::AcceptingInput => state,
             State::Animating(steps) => {
                 for cell in self.cells.iter_mut() {
-                    cell.step(steps);
+                    cell.step(steps, cellsize);
                 }
                 if steps == 0 {
                     self.spread()

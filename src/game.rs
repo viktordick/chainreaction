@@ -37,6 +37,7 @@ pub struct Game {
     cur_player: Owner,
     selected: Point,
     grid: Grid,
+    cellsize: i32,
 }
 
 impl Game {
@@ -46,6 +47,7 @@ impl Game {
     pub fn grid(&self) -> &Grid { &self.grid }
     pub fn selected(&self) -> Point { self.selected }
     pub fn dim(&self) -> Point { self.grid.dim() }
+    pub fn cellsize(&self) -> i32 { self.cellsize }
 
     pub fn new(config: Config) -> Game {
         Game {
@@ -54,6 +56,7 @@ impl Game {
             state: State::AcceptingInput,
             grid: Grid::new(config.size),
             selected: Point::new(0, 0),
+            cellsize: config.cellsize,
         }
     }
 
@@ -84,7 +87,7 @@ impl Game {
 
         let cur_player = self.cur_player;
         self.players[cur_player].started = true;
-        match self.grid.add_marble(p, cur_player) {
+        match self.grid.add_marble(p, cur_player, self.cellsize) {
             Ok(state) => {
                 self.state = state;
                 self.next_player_if_accepting();
@@ -97,7 +100,7 @@ impl Game {
         match self.state {
             State::AcceptingInput => (),
             _ => {
-                self.state = self.grid.step(self.state);
+                self.state = self.grid.step(self.state, self.cellsize);
                 self.grid.check_players(&mut self.players);
                 self.next_player_if_accepting();
             }

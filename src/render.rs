@@ -33,13 +33,14 @@ where CanvasDrawer: Fn(&mut Canvas<Surface>) -> Result<(), String>
         .map_err(|e| e.to_string())?)
 }
 
-pub fn gradient(canvas: &Canvas<Surface>, cx: i16, cy: i16, color: Color) -> Result<(), String> {
-    for i in 0..31 {
+pub fn gradient(canvas: &Canvas<Surface>, radius: i16, cx: i16, cy: i16, color: Color) -> Result<(), String> {
+    let size = 2*radius+1;
+    for i in 0..size {
         let mut color = color;
-        color.a = (256 - (((31-i) as u32 * 140)/32) as u16) as u8;
-        let halflength = ((15*15-(i-15)*(i-15)) as f64).sqrt() as i16;
-        canvas.hline(cx-halflength, cx+halflength, cy-15+i, Color::RGB(200, 200, 200))?;
-        canvas.hline(cx-halflength, cx+halflength, cy-15+i, color)?;
+        color.a = (256 - (((size-i) as u32 * 180)/(size as u32+1)) as u16) as u8;
+        let halflength = ((radius*radius-(i-radius)*(i-radius)) as f64).sqrt() as i16;
+        canvas.hline(cx-halflength, cx+halflength, cy-radius+i, Color::RGB(200, 200, 200))?;
+        canvas.hline(cx-halflength, cx+halflength, cy-radius+i, color)?;
     }
     Ok(())
 }
@@ -56,9 +57,9 @@ pub struct Renderer<'a> {
 }
 impl<'a> Renderer<'a> {
 
-    fn add_coords(background: &mut Canvas<Surface>, dim: Point) -> Result<(), String> {
+    fn add_coords(background: &mut Canvas<Surface>, dim: Point, cellsize: i32) -> Result<(), String> {
         let fontcontext = ttf::init().map_err(|e| e.to_string())?;
-        let font = fontcontext.load_font("/usr/share/fonts/liberation/LiberationMono-Regular.ttf", 24)?;
+        let font = fontcontext.load_font("/usr/share/fonts/liberation/LiberationMono-Regular.ttf", 18)?;
         let creator = background.texture_creator();
         let mut render = |character: u8, posx: i32, posy: i32| -> Result<(), String> {
             let bytes: [u8; 1] = [character];
@@ -81,11 +82,12 @@ impl<'a> Renderer<'a> {
             )?;
             Ok(())
         };
+        let cellsize = cellsize as i32;
         for i in 0..dim.re {
-            render(65+i as u8, 100*i as i32 + 50, 20)?;
+            render(65+i as u8, cellsize * i + cellsize/2, 10)?;
         };
         for i in 0..dim.im{
-            render(49+i as u8, 15, 100*i as i32+50)?;
+            render(49+i as u8, 10, cellsize * i + cellsize/2)?;
         }
         Ok(())
     }
@@ -100,46 +102,52 @@ impl<'a> Renderer<'a> {
         for player in game.players() {
             marbles.push(
                 create_texture(creator, 31, 31, |canvas| {
-                    gradient(&canvas, 15, 15, player.color())?;
+                    gradient(&canvas, 15, 15, 15, player.color())?;
                     Ok(())
                 })?
             );
         }
 
         let dim = game.dim();
+        let cellsize = game.cellsize();
+        let ucellsize = cellsize as u32;
 
         Ok(Renderer{
             dim: dim,
             background: create_texture(
-                creator, 100*dim.re as u32 + 100, 100*dim.im as u32,
+                creator, ucellsize*(dim.re+1) as u32, ucellsize*dim.im as u32,
                 |mut canvas| {
                     canvas.set_draw_color(Color::RGB(200, 200, 200));
                     canvas.clear();
-                    Renderer::add_coords(&mut canvas, dim)?;
-                    for x in 0..=dim.re {
-                        canvas.vline((x*100) as i16, 0, 100*dim.im as i16, black)?;
+                    Renderer::add_coords(&mut canvas, dim, cellsize)?;
+                    let cellsize = cellsize as i16;
+                    let dimx = dim.re as i16;
+                    let dimy = dim.im as i16;
+                    for x in 0..=dimx {
+                        canvas.vline(x * cellsize, 0, cellsize * dimy, black)?;
                     }
-                    for y in 0..dim.im {
-                        canvas.hline(0, (100*dim.re) as i16, (y*100) as i16, black)?;
+                    for y in 0..dimy as i16 {
+                        canvas.hline(0, cellsize * dimx, y*cellsize, black)?;
                     }
+                    let cellsize = cellsize as i32;
                     for coord in PointIter::new(dim) {
                         let cell = game.grid().cell(coord);
-                        let center = coord*100 + Point::new(50, 50);
+                        let center = coord*cellsize + Point::new(cellsize/2, cellsize/2);
                         for direction in 0..4 {
                             if !cell.has_neighbor(direction) {
                                 continue
                             }
-                            let pos = center + 25*DIRECTIONS[direction];
+                            let pos = center + cellsize/4*DIRECTIONS[direction];
                             let cx = pos.re as i16;
                             let cy = pos.im as i16;
-                            gradient(&canvas, cx, cy, Color::RGB(255, 255, 255))?;
+                            gradient(&canvas, 15, cx, cy, Color::RGB(255, 255, 255))?;
                         }
                     }
 
                     for (idx, player) in game.players().enumerate() {
-                        let x = (dim.re * 100 + 50) as i16;
+                        let x = (dim.re * cellsize + cellsize/2) as i16;
                         let y = (30 + idx * 40) as i16;
-                        gradient(&canvas, x, y, player.color())?;
+                        gradient(&canvas, 15, x, y, player.color())?;
                     }
                     Ok(())
                 },
@@ -159,11 +167,12 @@ impl<'a> Renderer<'a> {
                 },
             )?,
             selected: create_texture(
-                creator, 100, 100, |canvas| {
-                    canvas.thick_line(1, 1, 100, 1, 2, black)?;
-                    canvas.thick_line(1, 1, 1, 100, 2, black)?;
-                    canvas.thick_line(100, 1, 100, 100, 2, black)?;
-                    canvas.thick_line(1, 100, 100, 100, 2, black)?;
+                creator, ucellsize, ucellsize, |canvas| {
+                    let cellsize = cellsize as i16;
+                    canvas.thick_line(1, 1, cellsize, 1, 2, black)?;
+                    canvas.thick_line(1, 1, 1, cellsize, 2, black)?;
+                    canvas.thick_line(cellsize, 1, cellsize, cellsize, 2, black)?;
+                    canvas.thick_line(1, cellsize, cellsize, cellsize, 2, black)?;
                     Ok(())
                 },
             )?,
@@ -172,6 +181,7 @@ impl<'a> Renderer<'a> {
 
     pub fn update(&self, canvas: &mut Canvas<Window>, game: &Game) -> Result<(), String>{
         let grid = game.grid();
+        let cellsize = game.cellsize();
         canvas.copy(&self.background, None, None)?;
         for marble in grid.marbles() {
             let rect = Rect::new(marble.get_pos().re-15, marble.get_pos().im-15, 31, 31);
@@ -181,7 +191,7 @@ impl<'a> Renderer<'a> {
                 Some(rect),
             )?
         }
-        let rect = Rect::new(self.dim.re as i32*100 + 5, game.cur_player() as i32*40 + 15, 30, 31);
+        let rect = Rect::new(self.dim.re as i32*cellsize as i32 + 5, game.cur_player() as i32*40 + 15, 30, 31);
         canvas.copy(
             &self.active_marker,
             None,
@@ -191,7 +201,7 @@ impl<'a> Renderer<'a> {
             if player.alive {
                 continue
             }
-            let rect = Rect::new(self.dim.re as i32*100+35, 15+idx as i32*40, 31, 31);
+            let rect = Rect::new(self.dim.re as i32*cellsize+35, 15+idx as i32*40, 31, 31);
             canvas.copy(
                 &self.dead_marker,
                 None,
@@ -203,7 +213,7 @@ impl<'a> Renderer<'a> {
         canvas.copy(
             &self.selected,
             None,
-            Some(Rect::new(x*100, y*100, 100, 100)),
+            Some(Rect::new(x*cellsize, y*cellsize, cellsize as u32, cellsize as u32)),
         )?;
 
         Ok(())
@@ -212,8 +222,9 @@ impl<'a> Renderer<'a> {
 
 pub fn run_game(video: &VideoSubsystem, event_pump: &mut EventPump, game: &mut Game) -> Result<(), String> {
     let dim = game.dim();
+    let cellsize = game.cellsize() as u32;
     let mut canvas = video
-        .window("Chain reaction", 100*dim.re as u32 + 100, 100*dim.im as u32)
+        .window("Chain reaction", cellsize*(dim.re+1) as u32, cellsize*dim.im as u32)
         .resizable()
         .position_centered()
         .build()
@@ -239,8 +250,8 @@ pub fn run_game(video: &VideoSubsystem, event_pump: &mut EventPump, game: &mut G
                 },
                 Event::KeyDown { keycode, .. } => game.keydown(keycode.unwrap()),
                 Event::MouseButtonDown {x, y, .. } => {
-                    let x = x/100;
-                    let y = y/100;
+                    let x = x/cellsize as i32;
+                    let y = y/cellsize as i32;
                     if x < dim.re && y < dim.im {
                         game.click(Point::new(x, y));
                     }
