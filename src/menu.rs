@@ -51,8 +51,8 @@ pub struct Config {
 
 pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<Config, String> {
     let mut canvas = video
-        .window("Chain reaction", 0, 0)
-        .fullscreen_desktop()
+        .window("Chain reaction", 800, 600)
+        .resizable()
         .allow_highdpi()
         .build()
         .map_err(|e| e.to_string())?
@@ -154,10 +154,10 @@ pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<C
         }
         let black = Color::RGB(0, 0, 0);
         for x in 0..=size.re as i16 {
-            canvas.vline(600+50*x, 320, 320+50*size.im as i16, black)?;
+            canvas.vline(600+50*x, 220, 220+50*size.im as i16, black)?;
         }
         for y in 0..=size.im as i16 {
-            canvas.hline(600, 600+50*size.re as i16, 320+50*y, black)?;
+            canvas.hline(600, 600+50*size.re as i16, 220+50*y, black)?;
         }
         canvas.present();
         std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
