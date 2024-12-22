@@ -17,8 +17,8 @@ use crate::grid::{Point, PointIter, DIRECTIONS};
 use crate::game::Game;
 
 // Create a canvas, allow the given CanvasDrawer function to fill it, and convert to a texture.
-pub fn create_texture<'a, CanvasDrawer>(
-    creator: &'a TextureCreator<WindowContext>,
+pub fn create_texture<CanvasDrawer>(
+    creator: &TextureCreator<WindowContext>,
     width: u32,
     height: u32,
     draw: CanvasDrawer
