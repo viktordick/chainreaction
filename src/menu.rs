@@ -80,14 +80,15 @@ pub fn show_menu(video: &VideoSubsystem, event_pump: &mut EventPump) -> Result<C
     let mut marbles = Vec::new();
     let mut mousepos = (0u32, 0u32);
     let mut next_color: Option<Color> = None;
-    'running: loop {
+    let mut running = true;
+    while running {
         // Actual number of pixels
         let output_size = canvas.output_size()?;
         for event in event_pump.poll_iter() {
             match event {
                 Event::KeyDown { keycode: Some(Keycode::Escape | Keycode::Return), .. }
                 | Event::Quit {..} => {
-                    break 'running
+                    running = false;
                 },
                 Event::Window { win_event: WindowEvent::Resized(w, h), .. } => {
                     window_size = (w, h);

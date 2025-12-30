@@ -22,7 +22,7 @@ pub fn create_texture<CanvasDrawer>(
     width: u32,
     height: u32,
     draw: CanvasDrawer
-) -> Result<Texture, String>
+) -> Result<Texture<'_>, String>
 where CanvasDrawer: Fn(&mut Canvas<Surface>) -> Result<(), String>
 {
     let mut canvas = Surface::new(width, height, PixelFormatEnum::RGBA8888)
